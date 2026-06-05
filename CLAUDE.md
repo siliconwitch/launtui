@@ -42,7 +42,10 @@ never describe product functionality or per-feature behaviour. Keep it that way.
 - **`internal/tui/app.go`** — the root model. Owns the widgets, routes incoming
   messages to them, holds global state (window size), and composes their
   rendered output into the overall layout. The single place widgets are wired
-  together.
+  together. Also owns the shared search input and the set of modes: it tracks
+  the current mode, switches automatically to the first mode that has results
+  for the query (unless a hotkey or startup flag has pinned one), and feeds the
+  query to every mode.
 - **`internal/tui/config.go`** — the generic configuration loader. Resolves the
   config path and overlays the on-disk file onto each widget's defaults. It is
   widget-agnostic and never changes when widgets are added or removed.
@@ -58,6 +61,14 @@ widget-agnostic styling and helpers live in `internal/widgets/styles.go`.
 A widget that can be hidden carries an `Enabled bool` (toml `enabled`, default
 `true`) in its config and exposes an `Enabled() bool` method; `app.go` consults
 it to skip the widget's startup `Cmd` and omit it from the layout.
+
+A **mode** is a searchable widget (Run, Calculator, …) that satisfies the
+`widgets.Mode` interface in `mode.go`: it takes the shared query, reports whether
+it has results, navigates and activates a selection, and renders its own list.
+Modes share the app-owned input rather than carrying their own, and declare
+their display name and `ctrl`-hotkey so the mode bar, auto-switching, and help
+stay in sync. Adding a mode means writing its file and listing it once in
+`app.go`.
 
 ## Maintenance
 

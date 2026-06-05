@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -10,39 +11,79 @@ import (
 )
 
 var (
-	appStyle     = lipgloss.NewStyle().Padding(0, 1)
-	titleStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
-	dividerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	appStyle          = lipgloss.NewStyle().Padding(0, 1)
+	dividerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	modeActiveStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
+	modeInactiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
 type App struct {
-	clock    widgets.Clock
-	battery  widgets.Battery
-	launcher widgets.Launcher
-	help     widgets.Help
+	clock   widgets.Clock
+	battery widgets.Battery
+	help    widgets.Help
+
+	input   textinput.Model
+	modes   []widgets.Mode
+	current int
+	auto    bool
 
 	width  int
 	height int
 }
 
-func New() (App, error) {
-	launcherCfg := widgets.DefaultLauncherConfig()
+func New(startHotkey string) (App, error) {
+	runCfg := widgets.DefaultRunConfig()
+	calculatorCfg := widgets.DefaultCalculatorConfig()
+	clipboardCfg := widgets.DefaultClipboardConfig()
+	passwordsCfg := widgets.DefaultPasswordsConfig()
 	clockCfg := widgets.DefaultClockConfig()
 	batteryCfg := widgets.DefaultBatteryConfig()
 	helpCfg := widgets.DefaultHelpConfig()
 
-	err := Load(&launcherCfg, &clockCfg, &batteryCfg, &helpCfg)
+	err := Load(&runCfg, &calculatorCfg, &clipboardCfg, &passwordsCfg, &clockCfg, &batteryCfg, &helpCfg)
 
-	return App{
-		clock:    widgets.NewClock(clockCfg),
-		battery:  widgets.NewBattery(batteryCfg),
-		launcher: widgets.NewLauncher(launcherCfg),
-		help:     widgets.NewHelp(helpCfg),
-	}, err
+	input := textinput.New()
+	input.Prompt = "❯ "
+	input.Placeholder = "Search…"
+	input.Focus()
+
+	app := App{
+		clock:   widgets.NewClock(clockCfg),
+		battery: widgets.NewBattery(batteryCfg),
+		input:   input,
+		modes: []widgets.Mode{
+			widgets.NewRun(runCfg),
+			widgets.NewPasswords(passwordsCfg),
+			widgets.NewClipboard(clipboardCfg),
+			widgets.NewCalculator(calculatorCfg),
+		},
+		auto: true,
+	}
+
+	app.current = app.defaultMode()
+
+	if startHotkey != "" {
+		for i, mode := range app.modes {
+			if mode.Enabled() && mode.Hotkey() == startHotkey {
+				app.current = i
+				app.auto = false
+			}
+		}
+	}
+
+	app.help = widgets.NewHelp(helpCfg).WithBindings(app.helpBindings())
+
+	return app, err
 }
 
 func (a App) Init() tea.Cmd {
-	return tea.Batch(a.clock.Init(), a.battery.Init(), a.launcher.Init())
+	cmds := []tea.Cmd{textinput.Blink, a.clock.Init(), a.battery.Init()}
+
+	for _, mode := range a.modes {
+		cmds = append(cmds, mode.Init())
+	}
+
+	return tea.Batch(cmds...)
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -50,28 +91,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = msg.Width, msg.Height
 
+		return a, nil
+
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+h":
-			a.help = a.help.Toggle()
-			return a, nil
-
-		case "esc":
-			if a.help.Visible() {
-				a.help = a.help.Hide()
-				return a, nil
-			}
-
-			return a, tea.Quit
-		}
-
-		if a.help.Visible() {
-			return a, nil
-		}
+		return a.handleKey(msg)
 	}
 
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
+
+	a.input, cmd = a.input.Update(msg)
+	cmds = append(cmds, cmd)
 
 	a.clock, cmd = a.clock.Update(msg)
 	cmds = append(cmds, cmd)
@@ -79,10 +109,122 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	a.battery, cmd = a.battery.Update(msg)
 	cmds = append(cmds, cmd)
 
-	a.launcher, cmd = a.launcher.Update(msg)
-	cmds = append(cmds, cmd)
+	for i := range a.modes {
+		a.modes[i], cmd = a.modes[i].Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	if a.auto {
+		a.autoSwitch()
+	}
 
 	return a, tea.Batch(cmds...)
+}
+
+func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	if key == "ctrl+h" {
+		a.help = a.help.Toggle()
+
+		return a, nil
+	}
+
+	if a.help.Visible() {
+		if key == "esc" {
+			a.help = a.help.Hide()
+		}
+
+		return a, nil
+	}
+
+	if key == "esc" {
+		return a, tea.Quit
+	}
+
+	for i, mode := range a.modes {
+		if mode.Enabled() && mode.Hotkey() == key {
+			a.current = i
+			a.auto = false
+
+			return a, nil
+		}
+	}
+
+	switch key {
+	case "up":
+		a.modes[a.current] = a.modes[a.current].MoveUp()
+
+		return a, nil
+
+	case "down":
+		a.modes[a.current] = a.modes[a.current].MoveDown()
+
+		return a, nil
+
+	case "enter":
+		return a, a.modes[a.current].Activate()
+	}
+
+	previous := a.input.Value()
+
+	var cmd tea.Cmd
+	a.input, cmd = a.input.Update(msg)
+
+	if a.input.Value() != previous {
+		query := a.input.Value()
+
+		for i := range a.modes {
+			a.modes[i] = a.modes[i].SetQuery(query)
+		}
+
+		if a.auto {
+			a.autoSwitch()
+		}
+	}
+
+	return a, cmd
+}
+
+func (a *App) autoSwitch() {
+	for i, mode := range a.modes {
+		if mode.Enabled() && mode.HasResults() {
+			a.current = i
+
+			return
+		}
+	}
+
+	a.current = a.defaultMode()
+}
+
+func (a App) defaultMode() int {
+	for i, mode := range a.modes {
+		if mode.Enabled() {
+			return i
+		}
+	}
+
+	return 0
+}
+
+func (a App) helpBindings() []widgets.HelpBinding {
+	bindings := []widgets.HelpBinding{
+		{Keys: "type", Desc: "filter the list"},
+		{Keys: "↑ / ↓", Desc: "move selection"},
+		{Keys: "enter", Desc: "activate selection"},
+	}
+
+	for _, mode := range a.modes {
+		if mode.Enabled() {
+			bindings = append(bindings, widgets.HelpBinding{Keys: mode.Hotkey(), Desc: mode.Name() + " mode"})
+		}
+	}
+
+	return append(bindings,
+		widgets.HelpBinding{Keys: "ctrl+h", Desc: "toggle this help"},
+		widgets.HelpBinding{Keys: "esc", Desc: "quit"},
+	)
 }
 
 func (a App) View() string {
@@ -98,11 +240,10 @@ func (a App) View() string {
 		return lipgloss.Place(tuiWidth, tuiHeight, lipgloss.Center, lipgloss.Center, a.help.View())
 	}
 
-	left := titleStyle.Render("launtui")
-
-	if a.launcher.Enabled() {
-		left = lipgloss.JoinVertical(lipgloss.Left, left, a.launcher.InputView(contentWidth/2))
-	}
+	left := lipgloss.JoinVertical(lipgloss.Left,
+		a.modeBar(),
+		a.inputView(contentWidth/2),
+	)
 
 	header := spread(contentWidth, left, stackRight(a.clock.View(), a.battery.View()))
 
@@ -110,15 +251,47 @@ func (a App) View() string {
 
 	rows := tuiHeight - lipgloss.Height(header) - 1
 
-	sections := []string{header, divider}
-
-	if a.launcher.Enabled() {
-		sections = append(sections, a.launcher.ListView(contentWidth, rows))
-	}
-
-	body := lipgloss.JoinVertical(lipgloss.Left, sections...)
+	body := lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		divider,
+		a.modes[a.current].View(contentWidth, rows),
+	)
 
 	return appStyle.Width(tuiWidth).Height(tuiHeight).Render(body)
+}
+
+func (a App) modeBar() string {
+	var parts []string
+
+	for i, mode := range a.modes {
+		if !mode.Enabled() {
+			continue
+		}
+
+		if i == a.current {
+			parts = append(parts, modeActiveStyle.Render(mode.Name()))
+		} else {
+			parts = append(parts, modeInactiveStyle.Render(mode.Name()))
+		}
+	}
+
+	bar := strings.Join(parts, "  ")
+
+	if a.auto {
+		bar += modeInactiveStyle.Render("  · auto")
+	}
+
+	return bar
+}
+
+func (a App) inputView(width int) string {
+	input := a.input
+
+	if w := width - lipgloss.Width(input.Prompt) - 1; w >= 1 {
+		input.Width = w
+	}
+
+	return input.View()
 }
 
 func spread(width int, left, right string) string {

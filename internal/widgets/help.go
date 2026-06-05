@@ -26,26 +26,25 @@ var (
 	helpDescStyle  = lipgloss.NewStyle().Foreground(faintColor)
 )
 
-type helpBinding struct {
-	keys string
-	desc string
-}
-
-var helpBindings = []helpBinding{
-	{"type", "filter the list"},
-	{"↑ / ↓", "move selection"},
-	{"enter", "launch selection"},
-	{"ctrl+h", "toggle this help"},
-	{"esc", "quit"},
+type HelpBinding struct {
+	Keys string
+	Desc string
 }
 
 type Help struct {
-	cfg     HelpConfig
-	visible bool
+	cfg      HelpConfig
+	visible  bool
+	bindings []HelpBinding
 }
 
 func NewHelp(cfg HelpConfig) Help {
 	return Help{cfg: cfg}
+}
+
+func (h Help) WithBindings(bindings []HelpBinding) Help {
+	h.bindings = bindings
+
+	return h
 }
 
 func (h Help) Enabled() bool { return h.cfg.Enabled }
@@ -69,18 +68,18 @@ func (h Help) Hide() Help {
 func (h Help) View() string {
 	keyWidth := 0
 
-	for _, binding := range helpBindings {
-		if width := runeLen(binding.keys); width > keyWidth {
+	for _, binding := range h.bindings {
+		if width := runeLen(binding.Keys); width > keyWidth {
 			keyWidth = width
 		}
 	}
 
-	rows := make([]string, len(helpBindings))
+	rows := make([]string, len(h.bindings))
 
-	for i, binding := range helpBindings {
-		padding := strings.Repeat(" ", keyWidth-runeLen(binding.keys))
+	for i, binding := range h.bindings {
+		padding := strings.Repeat(" ", keyWidth-runeLen(binding.Keys))
 
-		rows[i] = helpKeyStyle.Render(binding.keys) + padding + "   " + helpDescStyle.Render(binding.desc)
+		rows[i] = helpKeyStyle.Render(binding.Keys) + padding + "   " + helpDescStyle.Render(binding.Desc)
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,

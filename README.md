@@ -47,7 +47,18 @@ _Coming soon._
 
 ## Usage
 
-Run `launtui` in a terminal and press `Ctrl-h` for the full list of keybindings.
+Run `launtui` in a terminal and start typing. It searches your apps by default
+and switches mode automatically when your query fits another one better (e.g.
+`4+5` jumps to the calculator). Press `Ctrl-h` for the full list of keybindings.
+
+Start directly in a single mode (this turns off the automatic switching):
+
+```sh
+launtui -r   # Run
+launtui -c   # Calculator
+launtui -v   # Clipboard
+launtui -p   # Passwords
+```
 
 ## Config
 
@@ -55,9 +66,18 @@ launtui reads `~/.config/launtui/config.toml` (honouring `$XDG_CONFIG_HOME`).
 Every key is optional and falls back to the default below.
 
 ```toml
-[launcher]
-enabled     = true
-placeholder = "Search…"
+[run]
+enabled = true
+
+[calculator]
+enabled   = true
+precision = 6                    # max decimal places in the result
+
+[clipboard]
+enabled = true
+
+[passwords]
+enabled = true
 
 [clock]
 enabled = true

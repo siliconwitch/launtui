@@ -7,6 +7,8 @@ var (
 	clockColor    = lipgloss.Color("5")
 	batteryColor  = lipgloss.Color("2")
 	faintColor    = lipgloss.Color("8")
+
+	subtleStyle = lipgloss.NewStyle().Foreground(faintColor)
 )
 
 func runeLen(s string) int {

@@ -10,28 +10,25 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
 )
 
-type LauncherConfig struct {
-	Enabled     bool   `toml:"enabled"`
-	Placeholder string `toml:"placeholder"`
+type RunConfig struct {
+	Enabled bool `toml:"enabled"`
 }
 
-func (LauncherConfig) SectionName() string { return "launcher" }
+func (RunConfig) SectionName() string { return "run" }
 
-func DefaultLauncherConfig() LauncherConfig {
-	return LauncherConfig{Enabled: true, Placeholder: "Search…"}
+func DefaultRunConfig() RunConfig {
+	return RunConfig{Enabled: true}
 }
 
 var (
 	nameStyle    = lipgloss.NewStyle()
 	selNameStyle = lipgloss.NewStyle().Foreground(launcherColor).Bold(true)
 	selBarStyle  = lipgloss.NewStyle().Foreground(launcherColor)
-	subtleStyle  = lipgloss.NewStyle().Foreground(faintColor)
 )
 
 type desktopApp struct {
@@ -42,120 +39,85 @@ type desktopApp struct {
 
 type appsLoadedMsg []desktopApp
 
-type Launcher struct {
-	cfg      LauncherConfig
-	input    textinput.Model
+type Run struct {
+	cfg      RunConfig
 	apps     []desktopApp
 	filtered []desktopApp
+	query    string
 	cursor   int
 	loaded   bool
 }
 
-func NewLauncher(cfg LauncherConfig) Launcher {
-	input := textinput.New()
-	input.Prompt = "❯ "
-	input.Placeholder = cfg.Placeholder
-	input.Focus()
-
-	return Launcher{cfg: cfg, input: input}
+func NewRun(cfg RunConfig) Run {
+	return Run{cfg: cfg}
 }
 
-func (l Launcher) Enabled() bool { return l.cfg.Enabled }
+func (Run) Name() string    { return "Run" }
+func (Run) Hotkey() string  { return "ctrl+r" }
+func (r Run) Enabled() bool { return r.cfg.Enabled }
 
-func (l Launcher) Init() tea.Cmd {
-	if !l.cfg.Enabled {
+func (r Run) Init() tea.Cmd {
+	if !r.cfg.Enabled {
 		return nil
 	}
 
-	return tea.Batch(textinput.Blink, loadAppsCmd())
+	return loadAppsCmd()
 }
 
-func (l Launcher) Update(msg tea.Msg) (Launcher, tea.Cmd) {
-	switch msg := msg.(type) {
-	case appsLoadedMsg:
-		l.apps = []desktopApp(msg)
-		l.loaded = true
-		l.refilter()
+func (r Run) Update(msg tea.Msg) (Mode, tea.Cmd) {
+	loaded, ok := msg.(appsLoadedMsg)
 
-		return l, nil
-
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "up", "ctrl+p":
-			if l.cursor > 0 {
-				l.cursor--
-			}
-
-			return l, nil
-
-		case "down", "ctrl+n":
-			if l.cursor < len(l.filtered)-1 {
-				l.cursor++
-			}
-
-			return l, nil
-
-		case "enter":
-			if len(l.filtered) > 0 {
-				return l, launchCmd(l.filtered[l.cursor])
-			}
-
-			return l, nil
-		}
+	if !ok {
+		return r, nil
 	}
 
-	prev := l.input.Value()
+	r.apps = []desktopApp(loaded)
+	r.loaded = true
+	r.refilter()
 
-	var cmd tea.Cmd
-	l.input, cmd = l.input.Update(msg)
-
-	if l.input.Value() != prev {
-		l.refilter()
-	}
-
-	return l, cmd
+	return r, nil
 }
 
-func (l *Launcher) refilter() {
-	query := strings.TrimSpace(l.input.Value())
+func (r Run) SetQuery(query string) Mode {
+	r.query = query
+	r.refilter()
 
-	if query == "" {
-		l.filtered = l.apps
-	} else {
-		names := make([]string, len(l.apps))
-
-		for i, app := range l.apps {
-			names[i] = app.Name
-		}
-
-		matches := fuzzy.Find(query, names)
-		l.filtered = make([]desktopApp, len(matches))
-
-		for i, match := range matches {
-			l.filtered[i] = l.apps[match.Index]
-		}
-	}
-
-	if l.cursor >= len(l.filtered) {
-		l.cursor = max(0, len(l.filtered)-1)
-	}
+	return r
 }
 
-func (l Launcher) InputView(width int) string {
-	input := l.input
-
-	if w := width - runeLen(input.Prompt) - 1; w >= 1 {
-		input.Width = w
-	}
-
-	return input.View()
+func (r Run) HasResults() bool {
+	return r.loaded && len(r.filtered) > 0
 }
 
-func (l Launcher) ListView(width, rows int) string {
+func (r Run) MoveUp() Mode {
+	if r.cursor > 0 {
+		r.cursor--
+	}
+
+	return r
+}
+
+func (r Run) MoveDown() Mode {
+	if r.cursor < len(r.filtered)-1 {
+		r.cursor++
+	}
+
+	return r
+}
+
+func (r Run) Activate() tea.Cmd {
+	if len(r.filtered) == 0 {
+		return nil
+	}
+
+	return launchCmd(r.filtered[r.cursor])
+}
+
+func (r Run) View(width, rows int) string {
 	switch {
-	case !l.loaded:
+	case !r.loaded:
 		return subtleStyle.Render("scanning applications…")
-	case len(l.filtered) == 0:
+	case len(r.filtered) == 0:
 		return subtleStyle.Render("no matching applications")
 	}
 
@@ -165,11 +127,11 @@ func (l Launcher) ListView(width, rows int) string {
 
 	start := 0
 
-	if l.cursor >= rows {
-		start = l.cursor - rows + 1
+	if r.cursor >= rows {
+		start = r.cursor - rows + 1
 	}
 
-	end := min(start+rows, len(l.filtered))
+	end := min(start+rows, len(r.filtered))
 
 	var b strings.Builder
 
@@ -178,13 +140,38 @@ func (l Launcher) ListView(width, rows int) string {
 			b.WriteByte('\n')
 		}
 
-		b.WriteString(l.renderApp(l.filtered[i], i == l.cursor, width))
+		b.WriteString(r.renderApp(r.filtered[i], i == r.cursor, width))
 	}
 
 	return b.String()
 }
 
-func (l Launcher) renderApp(app desktopApp, selected bool, width int) string {
+func (r *Run) refilter() {
+	query := strings.TrimSpace(r.query)
+
+	if query == "" {
+		r.filtered = r.apps
+	} else {
+		names := make([]string, len(r.apps))
+
+		for i, app := range r.apps {
+			names[i] = app.Name
+		}
+
+		matches := fuzzy.Find(query, names)
+		r.filtered = make([]desktopApp, len(matches))
+
+		for i, match := range matches {
+			r.filtered[i] = r.apps[match.Index]
+		}
+	}
+
+	if r.cursor >= len(r.filtered) {
+		r.cursor = max(0, len(r.filtered)-1)
+	}
+}
+
+func (r Run) renderApp(app desktopApp, selected bool, width int) string {
 	avail := width - 2
 
 	if avail < 1 {
