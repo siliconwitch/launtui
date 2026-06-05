@@ -8,14 +8,17 @@ import (
 )
 
 type ClockConfig struct {
-	Format string `toml:"format"`
+	Enabled bool   `toml:"enabled"`
+	Format  string `toml:"format"`
 }
 
 func (ClockConfig) SectionName() string { return "clock" }
 
 func DefaultClockConfig() ClockConfig {
-	return ClockConfig{Format: "15:04:05"}
+	return ClockConfig{Enabled: true, Format: "Mon 2 Jan - 15:04"}
 }
+
+var clockStyle = lipgloss.NewStyle().Foreground(clockColor).Bold(true)
 
 type clockTickMsg time.Time
 
@@ -28,7 +31,13 @@ func NewClock(cfg ClockConfig) Clock {
 	return Clock{cfg: cfg, now: time.Now()}
 }
 
+func (c Clock) Enabled() bool { return c.cfg.Enabled }
+
 func (c Clock) Init() tea.Cmd {
+	if !c.cfg.Enabled {
+		return nil
+	}
+
 	return clockTick()
 }
 
@@ -45,10 +54,11 @@ func (c Clock) Update(msg tea.Msg) (Clock, tea.Cmd) {
 }
 
 func (c Clock) View() string {
-	return lipgloss.JoinVertical(lipgloss.Right,
-		clockTimeStyle.Render(c.now.Format(c.cfg.Format)),
-		clockDateStyle.Render(c.now.Format("Mon 2 Jan 2006")),
-	)
+	if !c.cfg.Enabled {
+		return ""
+	}
+
+	return clockStyle.Render(c.now.Format(c.cfg.Format))
 }
 
 func clockTick() tea.Cmd {

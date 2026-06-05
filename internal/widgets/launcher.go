@@ -12,18 +12,27 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
 )
 
 type LauncherConfig struct {
+	Enabled     bool   `toml:"enabled"`
 	Placeholder string `toml:"placeholder"`
 }
 
 func (LauncherConfig) SectionName() string { return "launcher" }
 
 func DefaultLauncherConfig() LauncherConfig {
-	return LauncherConfig{Placeholder: "Search…"}
+	return LauncherConfig{Enabled: true, Placeholder: "Search…"}
 }
+
+var (
+	nameStyle    = lipgloss.NewStyle()
+	selNameStyle = lipgloss.NewStyle().Foreground(launcherColor).Bold(true)
+	selBarStyle  = lipgloss.NewStyle().Foreground(launcherColor)
+	subtleStyle  = lipgloss.NewStyle().Foreground(faintColor)
+)
 
 type desktopApp struct {
 	Name    string
@@ -51,7 +60,13 @@ func NewLauncher(cfg LauncherConfig) Launcher {
 	return Launcher{cfg: cfg, input: input}
 }
 
+func (l Launcher) Enabled() bool { return l.cfg.Enabled }
+
 func (l Launcher) Init() tea.Cmd {
+	if !l.cfg.Enabled {
+		return nil
+	}
+
 	return tea.Batch(textinput.Blink, loadAppsCmd())
 }
 

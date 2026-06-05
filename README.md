@@ -1,79 +1,82 @@
 # launtui
 
-A fast TUI run launcher, calculator, file finder and more — one keypress away.
+A fast, keyboard-driven application launcher for the terminal, with a clock and
+battery readout at a glance.
 
-Built in Go with [Bubble Tea](https://github.com/charmbracelet/bubbletea) +
-[Lip Gloss](https://github.com/charmbracelet/lipgloss), styled after
-[bluetui](https://github.com/pythops/bluetui) and
-[impala](https://github.com/pythops/impala).
+Built in Go with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and
+[Lip Gloss](https://github.com/charmbracelet/lipgloss). Largely vibecoded —
+written with AI assistance and reviewed by a human.
 
-## Modes
+## Installation
 
-Switch sections with `Tab` / `Shift+Tab`:
+### Arch Linux (AUR)
 
-- **Run** — fuzzy-find an executable on `$PATH` and launch it detached.
-- **Calc** — type an arithmetic expression and see the result live
-  (`+ - * / % ^`, parentheses, unary minus). `Enter` prints the result.
-- **Files** — browse your home directory and open an entry with the system
-  handler (`xdg-open`).
+_Coming soon._
 
-## Keys
+### Nix
 
-| Key             | Action               |
-| --------------- | -------------------- |
-| type            | filter               |
-| `↑/↓`           | move selection       |
-| `Enter`         | activate             |
-| `Tab` / `S-Tab` | next / previous mode |
-| `Esc` / `C-c`   | quit                 |
+_Coming soon._
 
-## Build & run
+### From source
 
-```sh
-CGO_ENABLED=0 go build -o launtui .
-./launtui
-```
+1. Clone the repository:
 
-`CGO_ENABLED=0` produces a fully static binary with no system dependencies.
+    ```sh
+    git clone https://github.com/siliconwitch/launtui.git
+    cd launtui
+    ```
+
+1. Build the static binary:
+
+    ```sh
+    CGO_ENABLED=0 go build -o launtui .
+    ```
+
+1. Install it onto your `PATH`:
+
+    ```sh
+    sudo install -Dm755 launtui /usr/local/bin/launtui
+    ```
+
+## Dependencies
+
+| Feature           | Requires                                       |
+| ----------------- | ---------------------------------------------- |
+| Build from source | [Go](https://go.dev) 1.26+                     |
+| Battery icon      | A [Nerd Font](https://www.nerdfonts.com)       |
+
+## Usage
+
+Run `launtui` in a terminal and press `Ctrl-h` for the full list of keybindings.
 
 ## Config
 
-launtui reads `~/.config/launtui/config.toml` (honouring `$XDG_CONFIG_HOME`),
-falling back to the built-in defaults when the file — or any individual key — is
-absent. Every setting, with its description, options and default:
+launtui reads `~/.config/launtui/config.toml` (honouring `$XDG_CONFIG_HOME`).
+Every key is optional and falls back to the default below.
 
 ```toml
 [launcher]
-placeholder = "Search…"    # text shown in the empty search box
-
-[calculator]
-precision = 2              # digits after the decimal point — integer, 0 or more
-angle     = "rad"          # unit for trig functions — "rad" or "deg"
+enabled     = true
+placeholder = "Search…"
 
 [clock]
-format = "15:04:05"        # Go reference-time layout, e.g. "15:04" or "Mon 2 Jan 15:04"
+enabled = true
+format  = "Mon 2 Jan - 15:04"   # Go reference-time layout
 
-[clipboard]
-max_entries = 50           # clipboard history entries to keep — integer, 1 or more
+[battery]
+enabled = true
+device  = "BAT0"                 # name under /sys/class/power_supply
+
+[help]
+enabled = true
 ```
 
-## Bind to a hotkey in niri
+## Contributing
 
-launtui is a terminal app, so spawn it in a small floating terminal from your
-`config.kdl`. Example with `foot`:
+Contributions are welcome — open an issue or a pull request. launtui is largely
+vibecoded, and you're welcome to contribute with AI assistance too. Just read
+and test your code before submitting.
 
-```kdl
-binds {
-    Mod+Space { spawn "foot" "-a" "launtui" "launtui"; }
-}
+## License
 
-window-rule {
-    match app-id="launtui"
-    open-floating true
-    default-column-width { fixed 720; }
-    default-window-height { fixed 480; }
-}
-```
-
-(Adjust the terminal command and window-rule to taste — `-a launtui` sets the
-app-id the rule matches on.)
+[MIT](LICENSE) © Raj Nakarja

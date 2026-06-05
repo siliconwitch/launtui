@@ -3,17 +3,10 @@ package widgets
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	accent   = lipgloss.Color("#89b4fa")
-	fgBright = lipgloss.Color("#cdd6f4")
-	fgFaint  = lipgloss.Color("#6c7086")
-
-	clockTimeStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	clockDateStyle = lipgloss.NewStyle().Foreground(fgFaint)
-
-	nameStyle    = lipgloss.NewStyle().Foreground(fgBright)
-	selNameStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	selBarStyle  = lipgloss.NewStyle().Foreground(accent)
-	subtleStyle  = lipgloss.NewStyle().Foreground(fgFaint)
+	launcherColor = lipgloss.Color("4")
+	clockColor    = lipgloss.Color("5")
+	batteryColor  = lipgloss.Color("2")
+	faintColor    = lipgloss.Color("8")
 )
 
 func runeLen(s string) int {

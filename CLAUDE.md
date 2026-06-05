@@ -55,6 +55,10 @@ section name, its model type and constructor, its message handling, and its
 rendering helpers, plus any private message types it needs. Shared,
 widget-agnostic styling and helpers live in `internal/widgets/styles.go`.
 
+A widget that can be hidden carries an `Enabled bool` (toml `enabled`, default
+`true`) in its config and exposes an `Enabled() bool` method; `app.go` consults
+it to skip the widget's startup `Cmd` and omit it from the layout.
+
 ## Maintenance
 
 After adding or changing a major feature, re-read this file and update it so the
