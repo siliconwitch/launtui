@@ -68,6 +68,7 @@ Every key is optional and falls back to the default below.
 ```toml
 [run]
 enabled = true
+exclude = []                     # app names to hide, exactly as shown in the list
 
 [calculator]
 enabled   = true

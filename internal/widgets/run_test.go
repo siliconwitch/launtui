@@ -6,6 +6,25 @@ import (
 	"testing"
 )
 
+func TestRunExcludesApps(t *testing.T) {
+	cfg := DefaultRunConfig()
+	cfg.Exclude = []string{"firefox", "  Slack  "}
+
+	run := NewRun(cfg)
+
+	updated, _ := run.Update(appsLoadedMsg{
+		{Name: "Firefox", Exec: "firefox"},
+		{Name: "Slack", Exec: "slack"},
+		{Name: "Terminal", Exec: "term"},
+	})
+
+	apps := updated.(Run).apps
+
+	if len(apps) != 1 || apps[0].Name != "Terminal" {
+		t.Fatalf("apps = %+v, want only Terminal", apps)
+	}
+}
+
 func TestStripFieldCodes(t *testing.T) {
 	cases := map[string]string{
 		"firefox %u":            "firefox",

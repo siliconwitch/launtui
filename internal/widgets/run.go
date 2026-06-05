@@ -16,7 +16,8 @@ import (
 )
 
 type RunConfig struct {
-	Enabled bool `toml:"enabled"`
+	Enabled bool     `toml:"enabled"`
+	Exclude []string `toml:"exclude"`
 }
 
 func (RunConfig) SectionName() string { return "run" }
@@ -71,11 +72,33 @@ func (r Run) Update(msg tea.Msg) (Mode, tea.Cmd) {
 		return r, nil
 	}
 
-	r.apps = []desktopApp(loaded)
+	r.apps = r.visibleApps(loaded)
 	r.loaded = true
 	r.refilter()
 
 	return r, nil
+}
+
+func (r Run) visibleApps(apps []desktopApp) []desktopApp {
+	if len(r.cfg.Exclude) == 0 {
+		return apps
+	}
+
+	excluded := make(map[string]bool, len(r.cfg.Exclude))
+
+	for _, name := range r.cfg.Exclude {
+		excluded[strings.ToLower(strings.TrimSpace(name))] = true
+	}
+
+	var kept []desktopApp
+
+	for _, app := range apps {
+		if !excluded[strings.ToLower(strings.TrimSpace(app.Name))] {
+			kept = append(kept, app)
+		}
+	}
+
+	return kept
 }
 
 func (r Run) SetQuery(query string) Mode {
