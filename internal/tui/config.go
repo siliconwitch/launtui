@@ -11,7 +11,6 @@ import (
 )
 
 type Section interface {
-	// Implemented by every widget's config struct
 	SectionName() string
 }
 
@@ -25,12 +24,11 @@ func ConfigPath() (string, error) {
 	return filepath.Join(dir, "launtui", "config.toml"), nil
 }
 
-// Overlays config file on top of the defaults
 func Load(targets ...Section) error {
 	path, err := ConfigPath()
 
 	if err != nil {
-		return nil // Keep defaults if no config dir is resolvable
+		return nil
 	}
 
 	var raw map[string]toml.Primitive
@@ -49,7 +47,7 @@ func Load(targets ...Section) error {
 		prim, ok := raw[t.SectionName()]
 
 		if !ok {
-			continue // no [section] for this widget; keep its defaults
+			continue
 		}
 
 		if err := md.PrimitiveDecode(prim, t); err != nil {

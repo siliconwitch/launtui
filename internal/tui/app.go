@@ -19,7 +19,7 @@ type App struct {
 	clock    widgets.Clock
 	launcher widgets.Launcher
 
-	width  int // Window size is dynamic
+	width  int
 	height int
 }
 
@@ -41,11 +41,9 @@ func (a App) Init() tea.Cmd {
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	// Dynamically size the window
 	case tea.WindowSizeMsg:
 		a.width, a.height = msg.Width, msg.Height
 
-	// Quit
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
@@ -66,7 +64,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) View() string {
-	// Wait for the first WindowSizeMsg
 	if a.width == 0 || a.height == 0 {
 		return ""
 	}

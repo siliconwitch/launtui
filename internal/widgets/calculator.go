@@ -1,9 +1,8 @@
 package widgets
 
-// CalculatorConfig configures the calculator.
 type CalculatorConfig struct {
-	Precision int    `toml:"precision"` // digits after the decimal point
-	Angle     string `toml:"angle"`     // "rad" or "deg"
+	Precision int    `toml:"precision"`
+	Angle     string `toml:"angle"`
 }
 
 func (CalculatorConfig) SectionName() string { return "calculator" }
@@ -11,5 +10,3 @@ func (CalculatorConfig) SectionName() string { return "calculator" }
 func DefaultCalculatorConfig() CalculatorConfig {
 	return CalculatorConfig{Precision: 2, Angle: "rad"}
 }
-
-// Calculator — evaluate expressions. To be defined together.
