@@ -14,11 +14,12 @@ never describe product functionality or per-feature behaviour. Keep it that way.
   line, then the `if err != nil` check. Group code into readable paragraphs.
 - **No comments.** Code must explain itself through naming and structure.
   (Struct tags are not comments.)
-- **Co-location.** A widget is entirely self-contained in its own file: its
+- **Co-location.** A widget is entirely self-contained in its own file (or, when
+  it has platform-specific behaviour, its own set of build-tagged files): its
   config, model, behaviour, and rendering live together. No widget-specific
   logic lives anywhere else. The only references to a widget outside its file
-  are its wiring in `app.go`. Removing a widget means deleting its file and that
-  wiring — nothing is scattered across the project.
+  are its wiring in `app.go`. Removing a widget means deleting its file(s) and
+  that wiring — nothing is scattered across the project.
 
 ## Architecture principles
 
@@ -29,11 +30,21 @@ never describe product functionality or per-feature behaviour. Keep it that way.
   calling one another.
 - **No import cycles.** Widgets never import the `tui` package; they satisfy the
   loader's interface structurally.
+- **Platform code is build-tagged, not branched.** OS-specific behaviour lives
+  in per-OS files (`<name>_darwin.go`, `<name>_linux.go`, with `//go:build`
+  tags), never behind a `runtime.GOOS` switch. A widget's cross-platform model,
+  `Update`, and rendering stay in its main file; only the OS leaf functions it
+  calls are split per platform. macOS is the only specially-tagged OS — every
+  other platform uses the `!darwin` files, so Linux behaviour never changes when
+  macOS support is added.
 
 ## Operational principles
 
 - Build and run with cgo disabled for a static, dependency-free binary:
   `CGO_ENABLED=0 go build`.
+- The project targets Linux and macOS. After a change, verify both: build, vet,
+  and test on the host, then cross-check the other OS with
+  `GOOS=linux go build ./...` and `GOOS=linux go vet ./...` (or the reverse).
 
 ## Roles
 
@@ -60,13 +71,20 @@ section name, its model type and constructor, its message handling, and its
 rendering helpers, plus any private message types it needs. Shared,
 widget-agnostic helpers live in `internal/widgets/styles.go` (colours,
 display-width text helpers, list windowing) and `internal/widgets/system.go`
-(OS integration: clipboard access and recording, JSON storage under the XDG
-directories, detached process spawning).
+(OS integration: JSON storage, detached process spawning, and the salted
+clipboard-suppression bookkeeping). The OS-specific halves of that integration —
+clipboard read/write, URL opening, application scanning and launching, battery
+reading — live in build-tagged `*_darwin.go` and `*_linux.go` files beside the
+widget; the cross-platform file holds the model and calls those leaf functions
+by name.
 
 A widget that can be hidden carries an `Enabled bool` (toml `enabled`, default
 `true`) in its config and exposes an `Enabled() bool` method; each widget
 guards its own startup `Cmd` with it, and `app.go` consults it to omit the
-widget from the layout.
+widget from the layout. A widget that only works under certain conditions (a
+particular OS, or an external tool being installed) folds a runtime availability
+check captured in its constructor into `Enabled()` (`cfg.Enabled && available`),
+so it disappears wherever it cannot work.
 
 A **mode** is a searchable widget (Run, Calculator, …) that satisfies the
 `widgets.Mode` interface in `mode.go`: it takes the shared query, reports whether
