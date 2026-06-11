@@ -19,6 +19,7 @@ func main() {
 	projects := flag.Bool("o", false, "start in Projects mode")
 	clipboard := flag.Bool("v", false, "start in Clipboard mode")
 	web := flag.Bool("s", false, "start in Web search mode")
+	safari := flag.Bool("b", false, "start in Safari mode")
 	watch := flag.Bool("watch", false, "watch the clipboard and record history")
 	record := flag.Bool("record", false, "record stdin into clipboard history")
 
@@ -47,6 +48,8 @@ func main() {
 		startLetter = "v"
 	case *web:
 		startLetter = "s"
+	case *safari:
+		startLetter = "b"
 	}
 
 	startHotkey := ""
