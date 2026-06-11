@@ -130,7 +130,7 @@ func (w Web) Activate() tea.Cmd {
 	address := w.actions[w.cursor].url
 
 	return func() tea.Msg {
-		spawnDetached("xdg-open", address)
+		openURL(address)
 
 		return RequestQuitMsg{}
 	}
