@@ -35,15 +35,17 @@ func New(startHotkey string) (App, error) {
 	runCfg := widgets.DefaultRunConfig()
 	calculatorCfg := widgets.DefaultCalculatorConfig()
 	passwordsCfg := widgets.DefaultPasswordsConfig()
+	onePasswordCfg := widgets.DefaultOnePasswordConfig()
 	projectsCfg := widgets.DefaultProjectsConfig()
 	clipboardCfg := widgets.DefaultClipboardConfig()
 	webCfg := widgets.DefaultWebConfig()
+	safariCfg := widgets.DefaultSafariConfig()
 	clockCfg := widgets.DefaultClockConfig()
 	batteryCfg := widgets.DefaultBatteryConfig()
 	helpCfg := widgets.DefaultHelpConfig()
 
-	err := Load(&runCfg, &calculatorCfg, &passwordsCfg, &projectsCfg, &clipboardCfg,
-		&webCfg, &clockCfg, &batteryCfg, &helpCfg)
+	err := Load(&runCfg, &calculatorCfg, &passwordsCfg, &onePasswordCfg, &projectsCfg,
+		&clipboardCfg, &webCfg, &safariCfg, &clockCfg, &batteryCfg, &helpCfg)
 
 	input := textinput.New()
 	input.Prompt = "❯ "
@@ -58,8 +60,10 @@ func New(startHotkey string) (App, error) {
 			widgets.NewRun(runCfg),
 			widgets.NewCalculator(calculatorCfg),
 			widgets.NewPasswords(passwordsCfg),
+			widgets.NewOnePassword(onePasswordCfg),
 			widgets.NewProjects(projectsCfg),
 			widgets.NewClipboard(clipboardCfg),
+			widgets.NewSafari(safariCfg),
 			widgets.NewWeb(webCfg),
 		},
 		auto: true,

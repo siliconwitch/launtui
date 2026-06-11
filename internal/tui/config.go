@@ -19,13 +19,19 @@ func ConfigPath() (string, error) {
 		return path, nil
 	}
 
-	dir, err := os.UserConfigDir()
+	base := os.Getenv("XDG_CONFIG_HOME")
 
-	if err != nil {
-		return "", err
+	if base == "" {
+		home, err := os.UserHomeDir()
+
+		if err != nil {
+			return "", err
+		}
+
+		base = filepath.Join(home, ".config")
 	}
 
-	return filepath.Join(dir, "launtui", "config.toml"), nil
+	return filepath.Join(base, "launtui", "config.toml"), nil
 }
 
 func Load(targets ...Section) error {
