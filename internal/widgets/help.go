@@ -69,7 +69,7 @@ func (h Help) View() string {
 	keyWidth := 0
 
 	for _, binding := range h.bindings {
-		if width := runeLen(binding.Keys); width > keyWidth {
+		if width := displayWidth(binding.Keys); width > keyWidth {
 			keyWidth = width
 		}
 	}
@@ -77,7 +77,7 @@ func (h Help) View() string {
 	rows := make([]string, len(h.bindings))
 
 	for i, binding := range h.bindings {
-		padding := strings.Repeat(" ", keyWidth-runeLen(binding.Keys))
+		padding := strings.Repeat(" ", keyWidth-displayWidth(binding.Keys))
 
 		rows[i] = helpKeyStyle.Render(binding.Keys) + padding + "   " + helpDescStyle.Render(binding.Desc)
 	}

@@ -1,10 +1,25 @@
 package tui
 
 import (
+	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func newTestApp(t *testing.T, startHotkey string) App {
+	t.Helper()
+
+	t.Setenv("LAUNTUI_CONFIG", filepath.Join(t.TempDir(), "config.toml"))
+
+	app, err := New(startHotkey)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return app
+}
 
 func typeString(model tea.Model, text string) tea.Model {
 	for _, r := range text {
@@ -19,7 +34,7 @@ func currentName(app App) string {
 }
 
 func TestDefaultIsRunAndAuto(t *testing.T) {
-	app, _ := New("")
+	app := newTestApp(t, "")
 
 	if !app.auto {
 		t.Fatal("auto-switching should be on by default")
@@ -31,7 +46,7 @@ func TestDefaultIsRunAndAuto(t *testing.T) {
 }
 
 func TestAutoSwitchToCalculator(t *testing.T) {
-	app, _ := New("")
+	app := newTestApp(t, "")
 
 	var model tea.Model = app
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -48,8 +63,36 @@ func TestAutoSwitchToCalculator(t *testing.T) {
 	}
 }
 
+func TestAutoSwitchToWebFallback(t *testing.T) {
+	app := newTestApp(t, "")
+
+	var model tea.Model = app
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = typeString(model, "how do I update go")
+
+	app = model.(App)
+
+	if currentName(app) != "Web" {
+		t.Fatalf("mode after typing a question = %q, want Web", currentName(app))
+	}
+}
+
+func TestAutoSwitchPrefersWebForURLs(t *testing.T) {
+	app := newTestApp(t, "")
+
+	var model tea.Model = app
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = typeString(model, "google.com")
+
+	app = model.(App)
+
+	if currentName(app) != "Web" {
+		t.Fatalf("mode after typing a URL = %q, want Web", currentName(app))
+	}
+}
+
 func TestHotkeyDisablesAuto(t *testing.T) {
-	app, _ := New("")
+	app := newTestApp(t, "")
 
 	var model tea.Model = app
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -67,7 +110,7 @@ func TestHotkeyDisablesAuto(t *testing.T) {
 }
 
 func TestStartHotkeyOpensMode(t *testing.T) {
-	app, _ := New("ctrl+v")
+	app := newTestApp(t, "ctrl+v")
 
 	if app.auto {
 		t.Fatal("starting with a flag should disable auto-switching")
@@ -75,5 +118,19 @@ func TestStartHotkeyOpensMode(t *testing.T) {
 
 	if currentName(app) != "Clip" {
 		t.Fatalf("start mode = %q, want Clip", currentName(app))
+	}
+}
+
+func TestEscReturnsCloseCommand(t *testing.T) {
+	app := newTestApp(t, "")
+
+	var model tea.Model = app
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = typeString(model, "4+5")
+
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if cmd == nil {
+		t.Fatal("esc should produce a close command")
 	}
 }

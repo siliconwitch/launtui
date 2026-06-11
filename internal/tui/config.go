@@ -15,6 +15,10 @@ type Section interface {
 }
 
 func ConfigPath() (string, error) {
+	if path := os.Getenv("LAUNTUI_CONFIG"); path != "" {
+		return path, nil
+	}
+
 	dir, err := os.UserConfigDir()
 
 	if err != nil {
@@ -28,7 +32,7 @@ func Load(targets ...Section) error {
 	path, err := ConfigPath()
 
 	if err != nil {
-		return nil
+		return err
 	}
 
 	var raw map[string]toml.Primitive

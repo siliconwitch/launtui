@@ -37,8 +37,9 @@ never describe product functionality or per-feature behaviour. Keep it that way.
 
 ## Roles
 
-- **`main.go`** — process entry point. Constructs the application, runs the
-  program, and reports startup and config errors. No feature logic.
+- **`main.go`** — process entry point. Parses flags, constructs the
+  application (or dispatches to a widget-provided auxiliary process mode),
+  runs the program, and reports startup and config errors. No feature logic.
 - **`internal/tui/app.go`** — the root model. Owns the widgets, routes incoming
   messages to them, holds global state (window size), and composes their
   rendered output into the overall layout. The single place widgets are wired
@@ -47,8 +48,9 @@ never describe product functionality or per-feature behaviour. Keep it that way.
   for the query (unless a hotkey or startup flag has pinned one), and feeds the
   query to every mode.
 - **`internal/tui/config.go`** — the generic configuration loader. Resolves the
-  config path and overlays the on-disk file onto each widget's defaults. It is
-  widget-agnostic and never changes when widgets are added or removed.
+  config path (`$LAUNTUI_CONFIG` overrides the default, which also gives tests
+  a hermetic seam) and overlays the on-disk file onto each widget's defaults.
+  It is widget-agnostic and never changes when widgets are added or removed.
 
 ## Widget structure
 
@@ -56,19 +58,33 @@ Every widget lives in `internal/widgets/<name>.go` and contains, together: its
 config struct (with `toml` tags) and defaults, the method exposing its config
 section name, its model type and constructor, its message handling, and its
 rendering helpers, plus any private message types it needs. Shared,
-widget-agnostic styling and helpers live in `internal/widgets/styles.go`.
+widget-agnostic helpers live in `internal/widgets/styles.go` (colours,
+display-width text helpers, list windowing) and `internal/widgets/system.go`
+(OS integration: clipboard access and recording, JSON storage under the XDG
+directories, detached process spawning).
 
 A widget that can be hidden carries an `Enabled bool` (toml `enabled`, default
-`true`) in its config and exposes an `Enabled() bool` method; `app.go` consults
-it to skip the widget's startup `Cmd` and omit it from the layout.
+`true`) in its config and exposes an `Enabled() bool` method; each widget
+guards its own startup `Cmd` with it, and `app.go` consults it to omit the
+widget from the layout.
 
 A **mode** is a searchable widget (Run, Calculator, …) that satisfies the
 `widgets.Mode` interface in `mode.go`: it takes the shared query, reports whether
 it has results, navigates and activates a selection, and renders its own list.
 Modes share the app-owned input rather than carrying their own, and declare
-their display name and `ctrl`-hotkey so the mode bar, auto-switching, and help
-stay in sync. Adding a mode means writing its file and listing it once in
-`app.go`.
+their display name and `ctrl`-hotkey so the mode bar, auto-switching, startup
+flags (`-<letter>` maps to `ctrl+<letter>`), and help stay in sync. Adding a
+mode means writing its file and listing it once in `app.go`. Modes reset their
+cursor to the top whenever the query changes, and their order in `app.go` is
+the auto-switch priority — selective matchers first, the catch-all mode last.
+A mode may additionally satisfy `widgets.StrongMatcher` to claim a query ahead
+of the normal order when it recognises the query with high confidence.
+
+Quitting is owned by `app.go`: widget `Cmd`s never return `tea.QuitMsg`
+(bubbletea short-circuits it before `Update`); they return
+`widgets.RequestQuitMsg` instead. `app.go` answers it (and `esc`) by
+broadcasting `widgets.AppClosingMsg` to every mode, so widgets can persist
+state in a final `Cmd` before the app quits.
 
 ## Maintenance
 

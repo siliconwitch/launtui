@@ -136,7 +136,35 @@ func scheduleBatteryCmd(device string) tea.Cmd {
 }
 
 func readBattery(device string) batteryReading {
-	return readBatteryAt(filepath.Join("/sys/class/power_supply", device))
+	reading := readBatteryAt(filepath.Join("/sys/class/power_supply", device))
+
+	if reading.present {
+		return reading
+	}
+
+	if base := firstBatteryDevice(); base != "" {
+		return readBatteryAt(base)
+	}
+
+	return reading
+}
+
+func firstBatteryDevice() string {
+	entries, err := os.ReadDir("/sys/class/power_supply")
+
+	if err != nil {
+		return ""
+	}
+
+	for _, entry := range entries {
+		base := filepath.Join("/sys/class/power_supply", entry.Name())
+
+		if readSysString(base, "type") == "Battery" {
+			return base
+		}
+	}
+
+	return ""
 }
 
 func readBatteryAt(base string) batteryReading {

@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -16,8 +15,9 @@ import (
 )
 
 type RunConfig struct {
-	Enabled bool     `toml:"enabled"`
-	Exclude []string `toml:"exclude"`
+	Enabled  bool     `toml:"enabled"`
+	Exclude  []string `toml:"exclude"`
+	Terminal string   `toml:"terminal"`
 }
 
 func (RunConfig) SectionName() string { return "run" }
@@ -27,15 +27,16 @@ func DefaultRunConfig() RunConfig {
 }
 
 var (
-	nameStyle    = lipgloss.NewStyle()
 	selNameStyle = lipgloss.NewStyle().Foreground(launcherColor).Bold(true)
 	selBarStyle  = lipgloss.NewStyle().Foreground(launcherColor)
 )
 
 type desktopApp struct {
-	Name    string
-	Comment string
-	Exec    string
+	Name       string
+	Comment    string
+	Exec       string
+	Terminal   bool
+	WorkingDir string
 }
 
 type appsLoadedMsg []desktopApp
@@ -103,6 +104,7 @@ func (r Run) visibleApps(apps []desktopApp) []desktopApp {
 
 func (r Run) SetQuery(query string) Mode {
 	r.query = query
+	r.cursor = 0
 	r.refilter()
 
 	return r
@@ -133,7 +135,7 @@ func (r Run) Activate() tea.Cmd {
 		return nil
 	}
 
-	return launchCmd(r.filtered[r.cursor])
+	return launchCmd(r.filtered[r.cursor], r.cfg.Terminal)
 }
 
 func (r Run) View(width, rows int) string {
@@ -144,17 +146,7 @@ func (r Run) View(width, rows int) string {
 		return subtleStyle.Render("no matching applications")
 	}
 
-	if rows < 1 {
-		rows = 1
-	}
-
-	start := 0
-
-	if r.cursor >= rows {
-		start = r.cursor - rows + 1
-	}
-
-	end := min(start+rows, len(r.filtered))
+	start, end := visibleRange(r.cursor, rows, len(r.filtered))
 
 	var b strings.Builder
 
@@ -203,7 +195,7 @@ func (r Run) renderApp(app desktopApp, selected bool, width int) string {
 
 	name, comment := app.Name, app.Comment
 
-	if runeLen(name) > avail {
+	if displayWidth(name) > avail {
 		name = truncate(name, avail)
 		comment = ""
 	}
@@ -211,9 +203,9 @@ func (r Run) renderApp(app desktopApp, selected bool, width int) string {
 	sub := ""
 
 	if comment != "" {
-		if gap := avail - runeLen(name); gap > 3 {
+		if gap := avail - displayWidth(name); gap > 3 {
 			comment = truncate(comment, gap-2)
-			sub = strings.Repeat(" ", gap-runeLen(comment)) + subtleStyle.Render(comment)
+			sub = strings.Repeat(" ", gap-displayWidth(comment)) + subtleStyle.Render(comment)
 		}
 	}
 
@@ -230,25 +222,70 @@ func loadAppsCmd() tea.Cmd {
 	}
 }
 
-func launchCmd(app desktopApp) tea.Cmd {
+func launchCmd(app desktopApp, preferredTerminal string) tea.Cmd {
 	return func() tea.Msg {
-		spawnDetached(app.Exec)
+		spawnDetachedIn(app.WorkingDir, launchArgv(app, preferredTerminal)...)
 
-		return tea.QuitMsg{}
+		return RequestQuitMsg{}
 	}
 }
 
-func spawnDetached(cmdline string) {
-	cmdline = strings.TrimSpace(cmdline)
+func launchArgv(app desktopApp, preferredTerminal string) []string {
+	cmdline := strings.TrimSpace(app.Exec)
 
 	if cmdline == "" {
-		return
+		return nil
 	}
 
-	cmd := exec.Command("sh", "-c", cmdline)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if app.Terminal {
+		return terminalArgv(resolveTerminal(preferredTerminal), cmdline)
+	}
 
-	_ = cmd.Start()
+	return []string{"sh", "-c", cmdline}
+}
+
+func resolveTerminal(preferred string) string {
+	if preferred != "" {
+		return preferred
+	}
+
+	if terminal := os.Getenv("TERMINAL"); terminal != "" {
+		return terminal
+	}
+
+	candidates := []string{
+		"foot", "alacritty", "kitty", "ghostty", "wezterm",
+		"gnome-terminal", "konsole", "xfce4-terminal", "xterm",
+	}
+
+	for _, candidate := range candidates {
+		_, err := exec.LookPath(candidate)
+
+		if err == nil {
+			return candidate
+		}
+	}
+
+	return ""
+}
+
+func terminalArgv(terminal, cmdline string) []string {
+	if terminal == "" {
+		return []string{"sh", "-c", cmdline}
+	}
+
+	switch filepath.Base(terminal) {
+	case "foot", "kitty":
+		return []string{terminal, "sh", "-c", cmdline}
+	case "wezterm":
+		return []string{terminal, "start", "--", "sh", "-c", cmdline}
+	case "gnome-terminal":
+		return []string{terminal, "--", "sh", "-c", cmdline}
+	case "xfce4-terminal":
+		return []string{terminal, "-x", "sh", "-c", cmdline}
+	default:
+		return []string{terminal, "-e", "sh", "-c", cmdline}
+	}
 }
 
 func applicationDirs() []string {
@@ -327,11 +364,14 @@ func parseDesktopFile(path string) (desktopApp, bool) {
 	defer file.Close()
 
 	var (
-		app       desktopApp
-		entryType string
-		inEntry   bool
-		noDisplay bool
-		isHidden  bool
+		app        desktopApp
+		entryType  string
+		inEntry    bool
+		noDisplay  bool
+		isHidden   bool
+		tryExec    string
+		onlyShowIn string
+		notShowIn  string
 	)
 
 	scanner := bufio.NewScanner(file)
@@ -367,10 +407,20 @@ func parseDesktopFile(path string) (desktopApp, bool) {
 			app.Comment = strings.TrimSpace(value)
 		case "Exec":
 			app.Exec = stripFieldCodes(value)
+		case "TryExec":
+			tryExec = strings.TrimSpace(value)
+		case "Path":
+			app.WorkingDir = strings.TrimSpace(value)
+		case "Terminal":
+			app.Terminal = strings.TrimSpace(value) == "true"
 		case "NoDisplay":
 			noDisplay = strings.TrimSpace(value) == "true"
 		case "Hidden":
 			isHidden = strings.TrimSpace(value) == "true"
+		case "OnlyShowIn":
+			onlyShowIn = strings.TrimSpace(value)
+		case "NotShowIn":
+			notShowIn = strings.TrimSpace(value)
 		}
 	}
 
@@ -382,12 +432,54 @@ func parseDesktopFile(path string) (desktopApp, bool) {
 		return desktopApp{}, false
 	}
 
+	if !desktopVisibleIn(onlyShowIn, notShowIn, os.Getenv("XDG_CURRENT_DESKTOP")) {
+		return desktopApp{}, false
+	}
+
+	if tryExec != "" {
+		_, err := exec.LookPath(tryExec)
+
+		if err != nil {
+			return desktopApp{}, false
+		}
+	}
+
 	return app, true
+}
+
+func desktopVisibleIn(onlyShowIn, notShowIn, currentDesktop string) bool {
+	desktops := map[string]bool{}
+
+	for _, name := range strings.Split(currentDesktop, ":") {
+		if name != "" {
+			desktops[strings.ToLower(name)] = true
+		}
+	}
+
+	if onlyShowIn != "" {
+		for _, name := range strings.Split(onlyShowIn, ";") {
+			if name != "" && desktops[strings.ToLower(name)] {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	for _, name := range strings.Split(notShowIn, ";") {
+		if name != "" && desktops[strings.ToLower(name)] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func stripFieldCodes(execLine string) string {
 	execLine = strings.ReplaceAll(execLine, "%%", "\x00")
 	execLine = execFieldCodes.ReplaceAllString(execLine, "")
+	execLine = strings.ReplaceAll(execLine, `""`, "")
+	execLine = strings.ReplaceAll(execLine, `''`, "")
 	execLine = strings.ReplaceAll(execLine, "\x00", "%")
 
 	return strings.TrimSpace(execLine)

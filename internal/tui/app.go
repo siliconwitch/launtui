@@ -34,13 +34,16 @@ type App struct {
 func New(startHotkey string) (App, error) {
 	runCfg := widgets.DefaultRunConfig()
 	calculatorCfg := widgets.DefaultCalculatorConfig()
-	clipboardCfg := widgets.DefaultClipboardConfig()
 	passwordsCfg := widgets.DefaultPasswordsConfig()
+	projectsCfg := widgets.DefaultProjectsConfig()
+	clipboardCfg := widgets.DefaultClipboardConfig()
+	webCfg := widgets.DefaultWebConfig()
 	clockCfg := widgets.DefaultClockConfig()
 	batteryCfg := widgets.DefaultBatteryConfig()
 	helpCfg := widgets.DefaultHelpConfig()
 
-	err := Load(&runCfg, &calculatorCfg, &clipboardCfg, &passwordsCfg, &clockCfg, &batteryCfg, &helpCfg)
+	err := Load(&runCfg, &calculatorCfg, &passwordsCfg, &projectsCfg, &clipboardCfg,
+		&webCfg, &clockCfg, &batteryCfg, &helpCfg)
 
 	input := textinput.New()
 	input.Prompt = "❯ "
@@ -53,9 +56,11 @@ func New(startHotkey string) (App, error) {
 		input:   input,
 		modes: []widgets.Mode{
 			widgets.NewRun(runCfg),
-			widgets.NewPasswords(passwordsCfg),
-			widgets.NewClipboard(clipboardCfg),
 			widgets.NewCalculator(calculatorCfg),
+			widgets.NewPasswords(passwordsCfg),
+			widgets.NewProjects(projectsCfg),
+			widgets.NewClipboard(clipboardCfg),
+			widgets.NewWeb(webCfg),
 		},
 		auto: true,
 	}
@@ -90,8 +95,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = msg.Width, msg.Height
+		a.input.Width = a.inputWidth()
 
 		return a, nil
+
+	case widgets.RequestQuitMsg:
+		cmd := a.close()
+
+		return a, cmd
 
 	case tea.KeyMsg:
 		return a.handleKey(msg)
@@ -99,6 +110,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
+
+	previous := a.input.Value()
 
 	a.input, cmd = a.input.Update(msg)
 	cmds = append(cmds, cmd)
@@ -112,6 +125,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	for i := range a.modes {
 		a.modes[i], cmd = a.modes[i].Update(msg)
 		cmds = append(cmds, cmd)
+	}
+
+	if a.input.Value() != previous {
+		a.setQuery(a.input.Value())
 	}
 
 	if a.auto {
@@ -139,7 +156,9 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if key == "esc" {
-		return a, tea.Quit
+		cmd := a.close()
+
+		return a, cmd
 	}
 
 	for i, mode := range a.modes {
@@ -172,11 +191,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	a.input, cmd = a.input.Update(msg)
 
 	if a.input.Value() != previous {
-		query := a.input.Value()
-
-		for i := range a.modes {
-			a.modes[i] = a.modes[i].SetQuery(query)
-		}
+		a.setQuery(a.input.Value())
 
 		if a.auto {
 			a.autoSwitch()
@@ -186,7 +201,51 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
+func (a *App) setQuery(query string) {
+	for i := range a.modes {
+		if a.modes[i].Enabled() {
+			a.modes[i] = a.modes[i].SetQuery(query)
+		}
+	}
+}
+
+func (a *App) close() tea.Cmd {
+	var cmds []tea.Cmd
+
+	for i := range a.modes {
+		if !a.modes[i].Enabled() {
+			continue
+		}
+
+		var cmd tea.Cmd
+
+		a.modes[i], cmd = a.modes[i].Update(widgets.AppClosingMsg{})
+
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	if len(cmds) == 0 {
+		return tea.Quit
+	}
+
+	return tea.Sequence(tea.Batch(cmds...), tea.Quit)
+}
+
 func (a *App) autoSwitch() {
+	for i, mode := range a.modes {
+		if !mode.Enabled() {
+			continue
+		}
+
+		if strong, ok := mode.(widgets.StrongMatcher); ok && strong.StrongMatch() {
+			a.current = i
+
+			return
+		}
+	}
+
 	for i, mode := range a.modes {
 		if mode.Enabled() && mode.HasResults() {
 			a.current = i
@@ -242,7 +301,7 @@ func (a App) View() string {
 
 	left := lipgloss.JoinVertical(lipgloss.Left,
 		a.modeBar(),
-		a.inputView(contentWidth/2),
+		a.input.View(),
 	)
 
 	header := spread(contentWidth, left, stackRight(a.clock.View(), a.battery.View()))
@@ -258,6 +317,12 @@ func (a App) View() string {
 	)
 
 	return appStyle.Width(tuiWidth).Height(tuiHeight).Render(body)
+}
+
+func (a App) inputWidth() int {
+	contentWidth := max(1, a.width-2)
+
+	return max(1, contentWidth/2-lipgloss.Width(a.input.Prompt)-1)
 }
 
 func (a App) modeBar() string {
@@ -282,16 +347,6 @@ func (a App) modeBar() string {
 	}
 
 	return bar
-}
-
-func (a App) inputView(width int) string {
-	input := a.input
-
-	if w := width - lipgloss.Width(input.Prompt) - 1; w >= 1 {
-		input.Width = w
-	}
-
-	return input.View()
 }
 
 func spread(width int, left, right string) string {

@@ -15,3 +15,11 @@ type Mode interface {
 	Activate() tea.Cmd
 	View(width, rows int) string
 }
+
+type RequestQuitMsg struct{}
+
+type AppClosingMsg struct{}
+
+type StrongMatcher interface {
+	StrongMatch() bool
+}
