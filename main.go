@@ -15,6 +15,7 @@ func main() {
 	run := flag.Bool("r", false, "start in Run mode")
 	calculator := flag.Bool("c", false, "start in Calculator mode")
 	passwords := flag.Bool("p", false, "start in Passwords mode")
+	onepassword := flag.Bool("1", false, "start in 1Password mode")
 	projects := flag.Bool("o", false, "start in Projects mode")
 	clipboard := flag.Bool("v", false, "start in Clipboard mode")
 	web := flag.Bool("s", false, "start in Web search mode")
@@ -38,6 +39,8 @@ func main() {
 		startLetter = "c"
 	case *passwords:
 		startLetter = "p"
+	case *onepassword:
+		startLetter = "1"
 	case *projects:
 		startLetter = "o"
 	case *clipboard:
