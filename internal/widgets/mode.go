@@ -23,3 +23,8 @@ type AppClosingMsg struct{}
 type StrongMatcher interface {
 	StrongMatch() bool
 }
+
+type HistoryEditor interface {
+	DeleteSelectedHistory() (Mode, tea.Cmd, bool)
+	ClearHistory() (Mode, tea.Cmd)
+}

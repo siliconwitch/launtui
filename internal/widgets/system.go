@@ -105,13 +105,19 @@ func recordClipboardText(text string, limit int) []clipboardEntry {
 		entries = entries[:limit]
 	}
 
-	path, err := launtuiDataPath(clipboardHistoryFile)
-
-	if err == nil {
-		_ = saveJSON(path, entries)
-	}
+	saveClipboardHistory(entries)
 
 	return entries
+}
+
+func saveClipboardHistory(entries []clipboardEntry) {
+	path, err := launtuiDataPath(clipboardHistoryFile)
+
+	if err != nil {
+		return
+	}
+
+	_ = saveJSON(path, entries)
 }
 
 type clipboardSuppression struct {

@@ -141,6 +141,42 @@ func (c Clipboard) MoveDown() Mode {
 	return c
 }
 
+func (c Clipboard) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
+	if c.cursor >= len(c.filtered) {
+		return c, nil, false
+	}
+
+	selected := c.filtered[c.cursor]
+
+	entries := make([]clipboardEntry, 0, len(c.entries))
+
+	for _, entry := range c.entries {
+		if entry != selected {
+			entries = append(entries, entry)
+		}
+	}
+
+	c.entries = entries
+	c.refilter()
+
+	return c, saveClipboardHistoryCmd(c.entries), true
+}
+
+func (c Clipboard) ClearHistory() (Mode, tea.Cmd) {
+	c.entries = nil
+	c.refilter()
+
+	return c, saveClipboardHistoryCmd(nil)
+}
+
+func saveClipboardHistoryCmd(entries []clipboardEntry) tea.Cmd {
+	return func() tea.Msg {
+		saveClipboardHistory(entries)
+
+		return nil
+	}
+}
+
 func (c Clipboard) Activate() tea.Cmd {
 	if len(c.filtered) == 0 {
 		return nil

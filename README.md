@@ -16,13 +16,15 @@ readout at a glance. One search box, six modes:
   clipboard history. The password itself is never written to history.
 - **Proj** — fuzzy-search your projects directory and open one in your editor.
   Git projects are fetched in the background and show their branch (green
-  clean, yellow dirty) plus pending pushes/pulls as ↑/↓ counts.
+  clean, red dirty) plus blue ↑/↓ arrows when there is anything to push or
+  pull.
 - **Clip** — clipboard history. Enter copies the selected entry back to the
   clipboard, ready to paste. Run `launtui -watch` in the background to record
   everything you copy.
 - **Web** — anything that looks like a web address (`google.com`) offers to
   open in your browser, and any other query (`how do I update go`) falls back
-  to a web search.
+  to a web search. Past visits and searches are kept; scroll down to one and
+  press enter to open it again.
 
 Built in Go with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and
 [Lip Gloss](https://github.com/charmbracelet/lipgloss). Largely vibecoded —
@@ -76,7 +78,9 @@ _Coming soon._
 Run `launtui` in a terminal and start typing. It searches your apps by default
 and switches mode automatically when your query fits another one better (e.g.
 `4+5` jumps to the calculator, an unmatched question falls back to web search).
-Press `Ctrl-h` for the full list of keybindings.
+`Tab` and `Shift-Tab` step through the modes by hand. In the Calc, Clip and
+Web modes, `Del` removes the selected history entry and `Ctrl-Del` clears that
+mode's entire history. Press `Ctrl-h` for the full list of keybindings.
 
 Start directly in a single mode (this turns off the automatic switching):
 
@@ -133,8 +137,9 @@ enabled   = true
 max_items = 100                  # clipboard entries kept in history
 
 [web]
-enabled    = true
-search_url = "https://duckduckgo.com/?q=%s"   # %s is the escaped query
+enabled     = true
+search_url  = "https://duckduckgo.com/?q=%s"   # %s is the escaped query
+max_history = 50                 # visits and searches kept in history
 
 [clock]
 enabled = true

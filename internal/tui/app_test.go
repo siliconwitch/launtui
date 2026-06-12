@@ -121,6 +121,46 @@ func TestStartHotkeyOpensMode(t *testing.T) {
 	}
 }
 
+func TestTabCyclesModes(t *testing.T) {
+	app := newTestApp(t, "")
+
+	var model tea.Model = app
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	app = model.(App)
+
+	if app.auto {
+		t.Fatal("auto-switching should be off after tab")
+	}
+
+	if currentName(app) != "Calc" {
+		t.Fatalf("mode after tab = %q, want Calc", currentName(app))
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+
+	app = model.(App)
+
+	if currentName(app) != "Run" {
+		t.Fatalf("mode after shift+tab = %q, want Run", currentName(app))
+	}
+}
+
+func TestShiftTabWrapsToLastMode(t *testing.T) {
+	app := newTestApp(t, "")
+
+	var model tea.Model = app
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+
+	app = model.(App)
+
+	if currentName(app) != "Web" {
+		t.Fatalf("mode after shift+tab from the first mode = %q, want Web", currentName(app))
+	}
+}
+
 func TestEscReturnsCloseCommand(t *testing.T) {
 	app := newTestApp(t, "")
 

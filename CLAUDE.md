@@ -78,7 +78,9 @@ mode means writing its file and listing it once in `app.go`. Modes reset their
 cursor to the top whenever the query changes, and their order in `app.go` is
 the auto-switch priority — selective matchers first, the catch-all mode last.
 A mode may additionally satisfy `widgets.StrongMatcher` to claim a query ahead
-of the normal order when it recognises the query with high confidence.
+of the normal order when it recognises the query with high confidence. A mode
+whose history can be edited additionally satisfies `widgets.HistoryEditor`;
+`app.go` routes the delete and ctrl+delete keys through it.
 
 Quitting is owned by `app.go`: widget `Cmd`s never return `tea.QuitMsg`
 (bubbletea short-circuits it before `Update`); they return

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -108,6 +109,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleKey(msg)
 	}
 
+	if isCtrlDelete(msg) {
+		return a.clearCurrentHistory()
+	}
+
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
 
@@ -171,6 +176,18 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
+	case "tab":
+		a.current = a.adjacentMode(1)
+		a.auto = false
+
+		return a, nil
+
+	case "shift+tab":
+		a.current = a.adjacentMode(-1)
+		a.auto = false
+
+		return a, nil
+
 	case "up":
 		a.modes[a.current] = a.modes[a.current].MoveUp()
 
@@ -183,6 +200,15 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		return a, a.modes[a.current].Activate()
+
+	case "delete":
+		if editor, ok := a.modes[a.current].(widgets.HistoryEditor); ok {
+			if mode, cmd, handled := editor.DeleteSelectedHistory(); handled {
+				a.modes[a.current] = mode
+
+				return a, cmd
+			}
+		}
 	}
 
 	previous := a.input.Value()
@@ -199,6 +225,50 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return a, cmd
+}
+
+func (a App) adjacentMode(delta int) int {
+	count := len(a.modes)
+
+	for step := 1; step <= count; step++ {
+		index := ((a.current+delta*step)%count + count) % count
+
+		if a.modes[index].Enabled() {
+			return index
+		}
+	}
+
+	return a.current
+}
+
+var ctrlDeleteSequences = map[string]bool{
+	unknownCSIString("3;5~"): true,
+	unknownCSIString("3^"):   true,
+}
+
+func unknownCSIString(parameters string) string {
+	return fmt.Sprintf("?CSI%+v?", []byte(parameters))
+}
+
+func isCtrlDelete(msg tea.Msg) bool {
+	sequence, ok := msg.(fmt.Stringer)
+
+	return ok && ctrlDeleteSequences[sequence.String()]
+}
+
+func (a App) clearCurrentHistory() (tea.Model, tea.Cmd) {
+	if a.help.Visible() {
+		return a, nil
+	}
+
+	if editor, ok := a.modes[a.current].(widgets.HistoryEditor); ok {
+		mode, cmd := editor.ClearHistory()
+		a.modes[a.current] = mode
+
+		return a, cmd
+	}
+
+	return a, nil
 }
 
 func (a *App) setQuery(query string) {
@@ -272,6 +342,9 @@ func (a App) helpBindings() []widgets.HelpBinding {
 		{Keys: "type", Desc: "filter the list"},
 		{Keys: "↑ / ↓", Desc: "move selection"},
 		{Keys: "enter", Desc: "activate selection"},
+		{Keys: "tab / shift+tab", Desc: "next / previous mode"},
+		{Keys: "del", Desc: "delete the selected history entry"},
+		{Keys: "ctrl+del", Desc: "clear the mode's history"},
 	}
 
 	for _, mode := range a.modes {

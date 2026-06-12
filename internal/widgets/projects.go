@@ -34,6 +34,7 @@ var (
 	projectBarStyle      = lipgloss.NewStyle().Foreground(projectColor)
 	cleanBranchStyle     = lipgloss.NewStyle().Foreground(cleanColor)
 	dirtyBranchStyle     = lipgloss.NewStyle().Foreground(dirtyColor)
+	aheadBehindStyle     = lipgloss.NewStyle().Foreground(aheadBehindColor)
 
 	projectSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -472,24 +473,32 @@ func (p Projects) projectStatus(item project) (string, int) {
 	styled := branchStyle.Render(branch)
 	statusWidth := displayWidth(branch)
 
-	var movement []string
+	arrows := ""
 
 	if item.ahead > 0 {
-		movement = append(movement, "↑"+strconv.Itoa(item.ahead))
+		arrows += "↑"
 	}
 
 	if item.behind > 0 {
-		movement = append(movement, "↓"+strconv.Itoa(item.behind))
+		arrows += "↓"
+	}
+
+	prefix := ""
+	prefixWidth := 0
+
+	if arrows != "" {
+		prefix = aheadBehindStyle.Render(arrows)
+		prefixWidth = displayWidth(arrows)
 	}
 
 	if item.fetchFailed {
-		movement = append(movement, "!")
+		prefix += nameStyle.Render("!")
+		prefixWidth++
 	}
 
-	if len(movement) > 0 {
-		text := strings.Join(movement, " ")
-		styled = nameStyle.Render(text) + " " + styled
-		statusWidth += displayWidth(text) + 1
+	if prefix != "" {
+		styled = prefix + " " + styled
+		statusWidth += prefixWidth + 1
 	}
 
 	return styled, statusWidth

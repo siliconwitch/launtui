@@ -4,21 +4,25 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 type WebConfig struct {
-	Enabled   bool   `toml:"enabled"`
-	SearchURL string `toml:"search_url"`
+	Enabled    bool   `toml:"enabled"`
+	SearchURL  string `toml:"search_url"`
+	MaxHistory int    `toml:"max_history"`
 }
 
 func (WebConfig) SectionName() string { return "web" }
 
 func DefaultWebConfig() WebConfig {
-	return WebConfig{Enabled: true, SearchURL: "https://duckduckgo.com/?q=%s"}
+	return WebConfig{Enabled: true, SearchURL: "https://duckduckgo.com/?q=%s", MaxHistory: 50}
 }
+
+const webHistoryFile = "web-history.json"
 
 var (
 	webSelectedStyle = lipgloss.NewStyle().Foreground(webColor).Bold(true)
@@ -30,10 +34,19 @@ type webAction struct {
 	url   string
 }
 
+type webVisit struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+	Time  int64  `json:"time"`
+}
+
+type webHistoryMsg []webVisit
+
 type Web struct {
 	cfg     WebConfig
 	query   string
 	actions []webAction
+	history []webVisit
 	cursor  int
 }
 
@@ -44,9 +57,40 @@ func NewWeb(cfg WebConfig) Web {
 func (Web) Name() string    { return "Web" }
 func (Web) Hotkey() string  { return "ctrl+s" }
 func (w Web) Enabled() bool { return w.cfg.Enabled }
-func (Web) Init() tea.Cmd   { return nil }
 
-func (w Web) Update(tea.Msg) (Mode, tea.Cmd) { return w, nil }
+func (w Web) Init() tea.Cmd {
+	if !w.cfg.Enabled {
+		return nil
+	}
+
+	return loadWebHistoryCmd()
+}
+
+func loadWebHistoryCmd() tea.Cmd {
+	return func() tea.Msg {
+		path, err := launtuiDataPath(webHistoryFile)
+
+		if err != nil {
+			return webHistoryMsg(nil)
+		}
+
+		history, _ := loadJSON[[]webVisit](path)
+
+		return webHistoryMsg(history)
+	}
+}
+
+func (w Web) Update(msg tea.Msg) (Mode, tea.Cmd) {
+	history, ok := msg.(webHistoryMsg)
+
+	if !ok {
+		return w, nil
+	}
+
+	w.history = history
+
+	return w, nil
+}
 
 func (w Web) SetQuery(query string) Mode {
 	w.query = strings.TrimSpace(query)
@@ -106,6 +150,10 @@ func (w Web) StrongMatch() bool {
 	return len(w.actions) > 1
 }
 
+func (w Web) itemCount() int {
+	return len(w.actions) + len(w.history)
+}
+
 func (w Web) MoveUp() Mode {
 	if w.cursor > 0 {
 		w.cursor--
@@ -115,7 +163,7 @@ func (w Web) MoveUp() Mode {
 }
 
 func (w Web) MoveDown() Mode {
-	if w.cursor < len(w.actions)-1 {
+	if w.cursor < w.itemCount()-1 {
 		w.cursor++
 	}
 
@@ -123,30 +171,127 @@ func (w Web) MoveDown() Mode {
 }
 
 func (w Web) Activate() tea.Cmd {
-	if len(w.actions) == 0 {
+	visit, ok := w.selectedVisit()
+
+	if !ok {
 		return nil
 	}
 
-	address := w.actions[w.cursor].url
+	limit := w.cfg.MaxHistory
 
 	return func() tea.Msg {
-		spawnDetached("xdg-open", address)
+		spawnDetached("xdg-open", visit.URL)
+		recordWebVisit(visit, limit)
 
 		return RequestQuitMsg{}
 	}
 }
 
+func (w Web) selectedVisit() (webVisit, bool) {
+	if w.cursor < len(w.actions) {
+		action := w.actions[w.cursor]
+
+		return webVisit{Label: action.label, URL: action.url, Time: time.Now().Unix()}, true
+	}
+
+	index := w.cursor - len(w.actions)
+
+	if index < len(w.history) {
+		visit := w.history[index]
+		visit.Time = time.Now().Unix()
+
+		return visit, true
+	}
+
+	return webVisit{}, false
+}
+
+func (w Web) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
+	index := w.cursor - len(w.actions)
+
+	if index < 0 || index >= len(w.history) {
+		return w, nil, false
+	}
+
+	w.history = append(append([]webVisit{}, w.history[:index]...), w.history[index+1:]...)
+
+	if w.cursor >= w.itemCount() {
+		w.cursor = max(w.itemCount()-1, 0)
+	}
+
+	return w, saveWebHistoryCmd(w.history), true
+}
+
+func (w Web) ClearHistory() (Mode, tea.Cmd) {
+	w.history = nil
+	w.cursor = min(w.cursor, max(w.itemCount()-1, 0))
+
+	return w, saveWebHistoryCmd(nil)
+}
+
+func saveWebHistoryCmd(history []webVisit) tea.Cmd {
+	return func() tea.Msg {
+		path, err := launtuiDataPath(webHistoryFile)
+
+		if err != nil {
+			return nil
+		}
+
+		_ = saveJSON(path, history)
+
+		return nil
+	}
+}
+
+func recordWebVisit(visit webVisit, limit int) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	path, err := launtuiDataPath(webHistoryFile)
+
+	if err != nil {
+		return
+	}
+
+	previous, _ := loadJSON[[]webVisit](path)
+
+	entries := make([]webVisit, 0, len(previous)+1)
+	entries = append(entries, visit)
+
+	for _, entry := range previous {
+		if entry.URL != visit.URL {
+			entries = append(entries, entry)
+		}
+	}
+
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+
+	_ = saveJSON(path, entries)
+}
+
 func (w Web) View(width, rows int) string {
-	if len(w.actions) == 0 {
+	if w.itemCount() == 0 {
 		return subtleStyle.Render("type a web address or search query")
 	}
 
-	start, end := visibleRange(w.cursor, rows, len(w.actions))
-
 	var lines []string
 
-	for i := start; i < end; i++ {
-		lines = append(lines, w.renderAction(w.actions[i], i == w.cursor, width))
+	for i, action := range w.actions {
+		lines = append(lines, w.renderAction(action, i == w.cursor, width))
+	}
+
+	historyRows := rows - len(lines)
+
+	if len(w.history) > 0 && historyRows > 0 {
+		selected := w.cursor - len(w.actions)
+		start, end := visibleRange(max(selected, 0), historyRows, len(w.history))
+
+		for i := start; i < end; i++ {
+			lines = append(lines, w.renderVisit(w.history[i], i == selected, width))
+		}
 	}
 
 	return strings.Join(lines, "\n")
@@ -160,4 +305,14 @@ func (w Web) renderAction(action webAction, selected bool, width int) string {
 	}
 
 	return "  " + nameStyle.Render(label)
+}
+
+func (w Web) renderVisit(visit webVisit, selected bool, width int) string {
+	label := truncate(visit.Label, max(width-2, 1))
+
+	if selected {
+		return webBarStyle.Render("▌ ") + webSelectedStyle.Render(label)
+	}
+
+	return "  " + subtleStyle.Render(label)
 }

@@ -160,6 +160,43 @@ func (c Calculator) Activate() tea.Cmd {
 	}
 }
 
+func (c Calculator) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
+	index := c.cursor - c.liveCount()
+
+	if index < 0 || index >= len(c.history) {
+		return c, nil, false
+	}
+
+	c.history = append(append([]calculation{}, c.history[:index]...), c.history[index+1:]...)
+
+	if c.cursor >= c.itemCount() {
+		c.cursor = max(c.itemCount()-1, 0)
+	}
+
+	return c, saveCalculatorHistoryCmd(c.history), true
+}
+
+func (c Calculator) ClearHistory() (Mode, tea.Cmd) {
+	c.history = nil
+	c.cursor = min(c.cursor, max(c.itemCount()-1, 0))
+
+	return c, saveCalculatorHistoryCmd(nil)
+}
+
+func saveCalculatorHistoryCmd(history []calculation) tea.Cmd {
+	return func() tea.Msg {
+		path, err := launtuiDataPath(calculatorHistoryFile)
+
+		if err != nil {
+			return nil
+		}
+
+		_ = saveJSON(path, history)
+
+		return nil
+	}
+}
+
 func (c Calculator) selectedAnswer() (string, bool) {
 	if c.valid && c.cursor == 0 {
 		return c.answer, true

@@ -196,6 +196,39 @@ func TestCalculatorHistorySelection(t *testing.T) {
 	}
 }
 
+func TestCalculatorDeleteSelectedHistory(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	mode, _ := NewCalculator(DefaultCalculatorConfig()).Update(calculatorHistoryMsg{
+		{Expression: "1+1", Answer: "2"},
+		{Expression: "2+2", Answer: "4"},
+	})
+
+	calculator := mode.SetQuery("3+3").(Calculator)
+
+	if _, _, handled := calculator.DeleteSelectedHistory(); handled {
+		t.Fatal("delete on the live result should not be handled")
+	}
+
+	deleted, cmd, handled := calculator.MoveDown().(Calculator).DeleteSelectedHistory()
+
+	if !handled || cmd == nil {
+		t.Fatal("deleting a history entry should be handled and persisted")
+	}
+
+	remaining := deleted.(Calculator)
+
+	if len(remaining.history) != 1 || remaining.history[0].Expression != "2+2" {
+		t.Fatalf("history after delete = %+v", remaining.history)
+	}
+
+	cleared, clearCmd := remaining.ClearHistory()
+
+	if len(cleared.(Calculator).history) != 0 || clearCmd == nil {
+		t.Fatalf("history after clear = %+v", cleared.(Calculator).history)
+	}
+}
+
 func TestCalculatorRecordsHistoryOnClose(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
