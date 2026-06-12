@@ -18,7 +18,7 @@ func DefaultClockConfig() ClockConfig {
 	return ClockConfig{Enabled: true, Format: "Mon 2 Jan - 15:04"}
 }
 
-var clockStyle = lipgloss.NewStyle().Foreground(clockColor).Bold(true)
+var clockStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
 
 type clockTickMsg time.Time
 

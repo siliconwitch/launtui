@@ -26,8 +26,8 @@ func DefaultBatteryConfig() BatteryConfig {
 const batteryInterval = 10 * time.Second
 
 var (
-	batteryLevelStyle = lipgloss.NewStyle().Foreground(batteryColor).Bold(true)
-	batteryInfoStyle  = lipgloss.NewStyle().Foreground(batteryColor)
+	batteryLevelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
+	batteryInfoStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 )
 
 type batteryReading struct {

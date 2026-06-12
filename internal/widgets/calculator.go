@@ -34,9 +34,8 @@ const (
 )
 
 var (
-	calculatorResultStyle   = lipgloss.NewStyle().Foreground(clockColor).Bold(true)
-	calculatorBarStyle      = lipgloss.NewStyle().Foreground(clockColor)
-	calculatorSelectedStyle = lipgloss.NewStyle().Foreground(clockColor).Bold(true)
+	calculatorAccent      = lipgloss.Color("5")
+	calculatorResultStyle = lipgloss.NewStyle().Foreground(calculatorAccent).Bold(true)
 )
 
 type calculation struct {
@@ -167,7 +166,7 @@ func (c Calculator) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
 		return c, nil, false
 	}
 
-	c.history = append(append([]calculation{}, c.history[:index]...), c.history[index+1:]...)
+	c.history = removeAt(c.history, index)
 
 	if c.cursor >= c.itemCount() {
 		c.cursor = max(c.itemCount()-1, 0)
@@ -243,20 +242,14 @@ func (c Calculator) renderLive(width int) string {
 	line := truncate("= "+c.answer, max(width-2, 1))
 
 	if c.cursor == 0 {
-		return calculatorBarStyle.Render("▌ ") + calculatorResultStyle.Render(line)
+		return renderRow(calculatorAccent, true, line, "")
 	}
 
 	return "  " + calculatorResultStyle.Render(line)
 }
 
 func (c Calculator) renderHistory(entry calculation, selected bool, width int) string {
-	line := truncate(entry.Expression+" = "+entry.Answer, max(width-2, 1))
-
-	if selected {
-		return calculatorBarStyle.Render("▌ ") + calculatorSelectedStyle.Render(line)
-	}
-
-	return "  " + subtleStyle.Render(line)
+	return renderHistoryRow(calculatorAccent, selected, truncate(entry.Expression+" = "+entry.Answer, max(width-2, 1)))
 }
 
 func (c *Calculator) evaluate() {
@@ -396,13 +389,7 @@ func recordCalculation(entry calculation, limit int) {
 		return
 	}
 
-	entries := append([]calculation{entry}, previous...)
-
-	if len(entries) > limit {
-		entries = entries[:limit]
-	}
-
-	_ = saveJSON(path, entries)
+	_ = saveJSON(path, prependCapped(previous, entry, limit, nil))
 }
 
 func loadCalculatorHistoryCmd() tea.Cmd {
@@ -577,48 +564,44 @@ var unitDefinitions = map[string]unitDefinition{
 }
 
 var unitAliases = map[string]string{
-	"millimetres": "mm", "millimeters": "mm", "millimetre": "mm", "millimeter": "mm",
-	"centimetres": "cm", "centimeters": "cm", "centimetre": "cm", "centimeter": "cm",
-	"metres": "m", "meters": "m", "metre": "m", "meter": "m",
-	"kilometres": "km", "kilometers": "km", "kilometre": "km", "kilometer": "km", "kms": "km",
-	"inches": "in", "inch": "in",
-	"feet": "ft", "foot": "ft",
-	"yards": "yd", "yard": "yd",
-	"miles": "mi", "mile": "mi",
-	"milligrams": "mg", "milligram": "mg",
-	"grams": "g", "gram": "g",
-	"kilograms": "kg", "kilogram": "kg", "kilos": "kg", "kilo": "kg",
-	"tonnes": "t", "tonne": "t", "tons": "t", "ton": "t",
-	"ounces": "oz", "ounce": "oz",
-	"pounds": "lb", "pound": "lb", "lbs": "lb",
-	"stones": "st", "stone": "st",
-	"millilitres": "ml", "milliliters": "ml", "millilitre": "ml", "milliliter": "ml",
-	"litres": "l", "liters": "l", "litre": "l", "liter": "l",
-	"cups":  "cup",
-	"pints": "pt", "pint": "pt",
-	"gallons": "gal", "gallon": "gal",
+	"millimetre": "mm", "millimeter": "mm",
+	"centimetre": "cm", "centimeter": "cm",
+	"metre": "m", "meter": "m",
+	"kilometre": "km", "kilometer": "km",
+	"inch": "in", "inches": "in",
+	"foot": "ft", "feet": "ft",
+	"yard":      "yd",
+	"mile":      "mi",
+	"milligram": "mg",
+	"gram":      "g",
+	"kilogram":  "kg", "kilo": "kg",
+	"tonne": "t", "ton": "t",
+	"ounce":      "oz",
+	"pound":      "lb",
+	"stone":      "st",
+	"millilitre": "ml", "milliliter": "ml",
+	"litre": "l", "liter": "l",
+	"pint":    "pt",
+	"gallon":  "gal",
 	"celsius": "c", "centigrade": "c",
 	"fahrenheit": "f",
 	"kelvin":     "k",
-	"bits":       "bit",
-	"bytes":      "b", "byte": "b",
-	"kilobytes": "kb", "kilobyte": "kb",
-	"megabytes": "mb", "megabyte": "mb",
-	"gigabytes": "gb", "gigabyte": "gb",
-	"terabytes": "tb", "terabyte": "tb",
-	"m/s":  "mps",
-	"km/h": "kmh", "kmph": "kmh", "kph": "kmh",
-	"knots": "knot", "kn": "knot", "kt": "knot", "kts": "knot",
+	"byte":       "b",
+	"kilobyte":   "kb",
+	"megabyte":   "mb",
+	"gigabyte":   "gb",
+	"terabyte":   "tb",
+	"m/s":        "mps",
+	"km/h":       "kmh", "kmph": "kmh", "kph": "kmh",
+	"kn": "knot", "kt": "knot",
 	"m2": "sqm", "km2": "sqkm", "ft2": "sqft", "mi2": "sqmi",
 	"m²": "sqm", "km²": "sqkm", "ft²": "sqft", "mi²": "sqmi",
-	"acres":    "acre",
-	"hectares": "ha", "hectare": "ha",
-	"secs": "s", "sec": "s", "seconds": "s", "second": "s",
-	"mins": "min", "minutes": "min", "minute": "min",
-	"hr": "h", "hrs": "h", "hours": "h", "hour": "h",
-	"days":  "day",
-	"weeks": "week", "wk": "week", "wks": "week",
-	"years": "year", "yr": "year", "yrs": "year",
+	"hectare": "ha",
+	"sec":     "s", "second": "s",
+	"minute": "min",
+	"hr":     "h", "hour": "h",
+	"wk": "week",
+	"yr": "year",
 }
 
 func resolveUnit(text string) (unitDefinition, bool) {
@@ -628,7 +611,17 @@ func resolveUnit(text string) (unitDefinition, bool) {
 		key = canonical
 	}
 
-	definition, ok := unitDefinitions[key]
+	if definition, ok := unitDefinitions[key]; ok {
+		return definition, true
+	}
+
+	singular := strings.TrimSuffix(key, "s")
+
+	if canonical, ok := unitAliases[singular]; ok {
+		singular = canonical
+	}
+
+	definition, ok := unitDefinitions[singular]
 
 	return definition, ok
 }

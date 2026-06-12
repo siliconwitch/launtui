@@ -24,10 +24,7 @@ func DefaultWebConfig() WebConfig {
 
 const webHistoryFile = "web-history.json"
 
-var (
-	webSelectedStyle = lipgloss.NewStyle().Foreground(webColor).Bold(true)
-	webBarStyle      = lipgloss.NewStyle().Foreground(webColor)
-)
+var webAccent = lipgloss.Color("12")
 
 type webAction struct {
 	label string
@@ -180,7 +177,7 @@ func (w Web) Activate() tea.Cmd {
 	limit := w.cfg.MaxHistory
 
 	return func() tea.Msg {
-		spawnDetached("xdg-open", visit.URL)
+		spawnDetached("", "xdg-open", visit.URL)
 		recordWebVisit(visit, limit)
 
 		return RequestQuitMsg{}
@@ -213,7 +210,7 @@ func (w Web) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
 		return w, nil, false
 	}
 
-	w.history = append(append([]webVisit{}, w.history[:index]...), w.history[index+1:]...)
+	w.history = removeAt(w.history, index)
 
 	if w.cursor >= w.itemCount() {
 		w.cursor = max(w.itemCount()-1, 0)
@@ -256,18 +253,9 @@ func recordWebVisit(visit webVisit, limit int) {
 
 	previous, _ := loadJSON[[]webVisit](path)
 
-	entries := make([]webVisit, 0, len(previous)+1)
-	entries = append(entries, visit)
-
-	for _, entry := range previous {
-		if entry.URL != visit.URL {
-			entries = append(entries, entry)
-		}
-	}
-
-	if len(entries) > limit {
-		entries = entries[:limit]
-	}
+	entries := prependCapped(previous, visit, limit, func(existing webVisit) bool {
+		return existing.URL == visit.URL
+	})
 
 	_ = saveJSON(path, entries)
 }
@@ -298,21 +286,9 @@ func (w Web) View(width, rows int) string {
 }
 
 func (w Web) renderAction(action webAction, selected bool, width int) string {
-	label := truncate(action.label, max(width-2, 1))
-
-	if selected {
-		return webBarStyle.Render("▌ ") + webSelectedStyle.Render(label)
-	}
-
-	return "  " + nameStyle.Render(label)
+	return renderRow(webAccent, selected, truncate(action.label, max(width-2, 1)), "")
 }
 
 func (w Web) renderVisit(visit webVisit, selected bool, width int) string {
-	label := truncate(visit.Label, max(width-2, 1))
-
-	if selected {
-		return webBarStyle.Render("▌ ") + webSelectedStyle.Render(label)
-	}
-
-	return "  " + subtleStyle.Render(label)
+	return renderHistoryRow(webAccent, selected, truncate(visit.Label, max(width-2, 1)))
 }

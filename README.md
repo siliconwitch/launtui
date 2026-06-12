@@ -159,6 +159,23 @@ Contributions are welcome — open an issue or a pull request. launtui is largel
 vibecoded, and you're welcome to contribute with AI assistance too. Just read
 and test your code before submitting.
 
+### Porting (macOS and others)
+
+launtui currently targets Linux, but it already cross-compiles for macOS and
+the OS-specific behaviour is confined to a handful of functions. A port needs:
+
+- `internal/widgets/system.go` — add `pbcopy`/`pbpaste` to the clipboard tool
+  lists.
+- `internal/widgets/web.go` — launch URLs with `open` instead of `xdg-open`.
+- `internal/widgets/run.go` — `scanDesktopApps` and `launchArgv` are XDG
+  desktop-entry based; macOS needs an `.app` bundle scanner and `open -a`.
+- `internal/widgets/battery.go` — reads `/sys/class/power_supply`; on other
+  platforms the widget silently hides itself, so this is optional (`pmset` on
+  macOS).
+
+Everything else (passwords, projects, calculator, clipboard history) is
+portable as is.
+
 ## License
 
 [MIT](LICENSE) © Raj Nakarja

@@ -5,12 +5,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sahilm/fuzzy"
 )
 
 type ClipboardConfig struct {
@@ -24,24 +24,17 @@ func DefaultClipboardConfig() ClipboardConfig {
 	return ClipboardConfig{Enabled: true, MaxItems: defaultClipboardLimit}
 }
 
-var (
-	clipboardSelectedStyle = lipgloss.NewStyle().Foreground(clipboardColor).Bold(true)
-	clipboardBarStyle      = lipgloss.NewStyle().Foreground(clipboardColor)
-)
+var clipboardAccent = lipgloss.Color("6")
 
 type clipboardHistoryMsg []clipboardEntry
 
 type Clipboard struct {
-	cfg      ClipboardConfig
-	entries  []clipboardEntry
-	filtered []clipboardEntry
-	query    string
-	cursor   int
-	loaded   bool
+	cfg  ClipboardConfig
+	list list[clipboardEntry]
 }
 
 func NewClipboard(cfg ClipboardConfig) Clipboard {
-	return Clipboard{cfg: cfg}
+	return Clipboard{cfg: cfg, list: newList(func(entry clipboardEntry) string { return clipboardPreview(entry.Text) })}
 }
 
 func (Clipboard) Name() string    { return "Clip" }
@@ -69,44 +62,15 @@ func (c Clipboard) Update(msg tea.Msg) (Mode, tea.Cmd) {
 		return c, nil
 	}
 
-	c.entries = history
-	c.loaded = true
-	c.refilter()
+	c.list.setItems(history)
 
 	return c, nil
 }
 
 func (c Clipboard) SetQuery(query string) Mode {
-	c.query = query
-	c.cursor = 0
-	c.refilter()
+	c.list.setQuery(query)
 
 	return c
-}
-
-func (c *Clipboard) refilter() {
-	query := strings.TrimSpace(c.query)
-
-	if query == "" {
-		c.filtered = c.entries
-	} else {
-		previews := make([]string, len(c.entries))
-
-		for i, entry := range c.entries {
-			previews[i] = clipboardPreview(entry.Text)
-		}
-
-		matches := fuzzy.Find(query, previews)
-		c.filtered = make([]clipboardEntry, len(matches))
-
-		for i, match := range matches {
-			c.filtered[i] = c.entries[match.Index]
-		}
-	}
-
-	if c.cursor >= len(c.filtered) {
-		c.cursor = max(0, len(c.filtered)-1)
-	}
 }
 
 func clipboardPreview(text string) string {
@@ -121,50 +85,42 @@ func clipboardPreview(text string) string {
 	return strings.TrimSpace(text)
 }
 
-func (c Clipboard) HasResults() bool {
-	return c.loaded && len(c.filtered) > 0
-}
+func (c Clipboard) HasResults() bool { return c.list.hasResults() }
 
 func (c Clipboard) MoveUp() Mode {
-	if c.cursor > 0 {
-		c.cursor--
-	}
+	c.list.moveUp()
 
 	return c
 }
 
 func (c Clipboard) MoveDown() Mode {
-	if c.cursor < len(c.filtered)-1 {
-		c.cursor++
-	}
+	c.list.moveDown()
 
 	return c
 }
 
 func (c Clipboard) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
-	if c.cursor >= len(c.filtered) {
+	selected, ok := c.list.selected()
+
+	if !ok {
 		return c, nil, false
 	}
 
-	selected := c.filtered[c.cursor]
+	entries := make([]clipboardEntry, 0, len(c.list.items))
 
-	entries := make([]clipboardEntry, 0, len(c.entries))
-
-	for _, entry := range c.entries {
+	for _, entry := range c.list.items {
 		if entry != selected {
 			entries = append(entries, entry)
 		}
 	}
 
-	c.entries = entries
-	c.refilter()
+	c.list.setItems(entries)
 
-	return c, saveClipboardHistoryCmd(c.entries), true
+	return c, saveClipboardHistoryCmd(entries), true
 }
 
 func (c Clipboard) ClearHistory() (Mode, tea.Cmd) {
-	c.entries = nil
-	c.refilter()
+	c.list.setItems(nil)
 
 	return c, saveClipboardHistoryCmd(nil)
 }
@@ -178,16 +134,17 @@ func saveClipboardHistoryCmd(entries []clipboardEntry) tea.Cmd {
 }
 
 func (c Clipboard) Activate() tea.Cmd {
-	if len(c.filtered) == 0 {
+	entry, ok := c.list.selected()
+
+	if !ok {
 		return nil
 	}
 
-	text := c.filtered[c.cursor].Text
 	limit := c.cfg.MaxItems
 
 	return func() tea.Msg {
-		copyToClipboard(text)
-		recordClipboardText(text, limit)
+		copyToClipboard(entry.Text)
+		recordClipboardText(entry.Text, limit)
 
 		return RequestQuitMsg{}
 	}
@@ -195,28 +152,19 @@ func (c Clipboard) Activate() tea.Cmd {
 
 func (c Clipboard) View(width, rows int) string {
 	switch {
-	case !c.loaded:
+	case !c.list.loaded:
 		return subtleStyle.Render("loading clipboard history…")
-	case len(c.entries) == 0:
+	case len(c.list.items) == 0:
 		return subtleStyle.Render("clipboard history is empty — run `launtui -watch` to record copies")
-	case len(c.filtered) == 0:
+	case len(c.list.filtered) == 0:
 		return subtleStyle.Render("no matching clipboard entries")
 	}
 
-	start, end := visibleRange(c.cursor, rows, len(c.filtered))
 	now := time.Now().Unix()
 
-	var b strings.Builder
-
-	for i := start; i < end; i++ {
-		if i > start {
-			b.WriteByte('\n')
-		}
-
-		b.WriteString(c.renderEntry(c.filtered[i], i == c.cursor, width, now))
-	}
-
-	return b.String()
+	return c.list.view(width, rows, func(entry clipboardEntry, selected bool, width int) string {
+		return c.renderEntry(entry, selected, width, now)
+	})
 }
 
 func (c Clipboard) renderEntry(entry clipboardEntry, selected bool, width int, now int64) string {
@@ -229,7 +177,7 @@ func (c Clipboard) renderEntry(entry clipboardEntry, selected bool, width int, n
 		preview += " ⏎"
 	}
 
-	if displayWidth(preview) > avail {
+	if lipgloss.Width(preview) > avail {
 		preview = truncate(preview, avail)
 		age = ""
 	}
@@ -237,16 +185,27 @@ func (c Clipboard) renderEntry(entry clipboardEntry, selected bool, width int, n
 	sub := ""
 
 	if age != "" {
-		if gap := avail - displayWidth(preview); gap > displayWidth(age)+1 {
-			sub = strings.Repeat(" ", gap-displayWidth(age)) + subtleStyle.Render(age)
+		if gap := avail - lipgloss.Width(preview); gap > lipgloss.Width(age)+1 {
+			sub = strings.Repeat(" ", gap-lipgloss.Width(age)) + subtleStyle.Render(age)
 		}
 	}
 
-	if selected {
-		return clipboardBarStyle.Render("▌ ") + clipboardSelectedStyle.Render(preview) + sub
-	}
+	return renderRow(clipboardAccent, selected, preview, sub)
+}
 
-	return "  " + nameStyle.Render(preview) + sub
+func timeAgo(unix, now int64) string {
+	elapsed := now - unix
+
+	switch {
+	case elapsed < 60:
+		return "now"
+	case elapsed < 3600:
+		return strconv.FormatInt(elapsed/60, 10) + "m"
+	case elapsed < 86400:
+		return strconv.FormatInt(elapsed/3600, 10) + "h"
+	default:
+		return strconv.FormatInt(elapsed/86400, 10) + "d"
+	}
 }
 
 func WatchClipboard(cfg ClipboardConfig) error {

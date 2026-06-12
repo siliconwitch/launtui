@@ -90,20 +90,11 @@ func recordClipboardText(text string, limit int) []clipboardEntry {
 		return loadClipboardHistory()
 	}
 
-	previous := loadClipboardHistory()
+	entry := clipboardEntry{Text: text, Time: time.Now().Unix()}
 
-	entries := make([]clipboardEntry, 0, len(previous)+1)
-	entries = append(entries, clipboardEntry{Text: text, Time: time.Now().Unix()})
-
-	for _, entry := range previous {
-		if entry.Text != text {
-			entries = append(entries, entry)
-		}
-	}
-
-	if limit > 0 && len(entries) > limit {
-		entries = entries[:limit]
-	}
+	entries := prependCapped(loadClipboardHistory(), entry, limit, func(existing clipboardEntry) bool {
+		return existing.Text == text
+	})
 
 	saveClipboardHistory(entries)
 
@@ -274,11 +265,7 @@ func expandHome(path string) string {
 	return path
 }
 
-func spawnDetached(argv ...string) {
-	spawnDetachedIn("", argv...)
-}
-
-func spawnDetachedIn(dir string, argv ...string) {
+func spawnDetached(dir string, argv ...string) {
 	if len(argv) == 0 || argv[0] == "" {
 		return
 	}

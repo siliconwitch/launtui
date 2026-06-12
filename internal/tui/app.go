@@ -1,9 +1,14 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -437,4 +442,56 @@ func stackRight(parts ...string) string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Right, visible...)
+}
+
+type Section interface {
+	SectionName() string
+}
+
+func ConfigPath() (string, error) {
+	if path := os.Getenv("LAUNTUI_CONFIG"); path != "" {
+		return path, nil
+	}
+
+	dir, err := os.UserConfigDir()
+
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(dir, "launtui", "config.toml"), nil
+}
+
+func Load(targets ...Section) error {
+	path, err := ConfigPath()
+
+	if err != nil {
+		return err
+	}
+
+	var raw map[string]toml.Primitive
+
+	md, err := toml.DecodeFile(path, &raw)
+
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	for _, t := range targets {
+		prim, ok := raw[t.SectionName()]
+
+		if !ok {
+			continue
+		}
+
+		if err := md.PrimitiveDecode(prim, t); err != nil {
+			return fmt.Errorf("config section [%s]: %w", t.SectionName(), err)
+		}
+	}
+
+	return nil
 }

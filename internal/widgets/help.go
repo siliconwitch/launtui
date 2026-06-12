@@ -19,11 +19,10 @@ func DefaultHelpConfig() HelpConfig {
 var (
 	helpBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(launcherColor).
+			BorderForeground(lipgloss.Color("4")).
 			Padding(1, 3)
-	helpTitleStyle = lipgloss.NewStyle().Foreground(launcherColor).Bold(true)
-	helpKeyStyle   = lipgloss.NewStyle().Foreground(clockColor).Bold(true)
-	helpDescStyle  = lipgloss.NewStyle().Foreground(faintColor)
+	helpTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
+	helpKeyStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
 )
 
 type HelpBinding struct {
@@ -69,7 +68,7 @@ func (h Help) View() string {
 	keyWidth := 0
 
 	for _, binding := range h.bindings {
-		if width := displayWidth(binding.Keys); width > keyWidth {
+		if width := lipgloss.Width(binding.Keys); width > keyWidth {
 			keyWidth = width
 		}
 	}
@@ -77,9 +76,9 @@ func (h Help) View() string {
 	rows := make([]string, len(h.bindings))
 
 	for i, binding := range h.bindings {
-		padding := strings.Repeat(" ", keyWidth-displayWidth(binding.Keys))
+		padding := strings.Repeat(" ", keyWidth-lipgloss.Width(binding.Keys))
 
-		rows[i] = helpKeyStyle.Render(binding.Keys) + padding + "   " + helpDescStyle.Render(binding.Desc)
+		rows[i] = helpKeyStyle.Render(binding.Keys) + padding + "   " + subtleStyle.Render(binding.Desc)
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,

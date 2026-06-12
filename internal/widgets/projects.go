@@ -12,7 +12,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sahilm/fuzzy"
 )
 
 type ProjectsConfig struct {
@@ -30,11 +29,10 @@ func DefaultProjectsConfig() ProjectsConfig {
 const projectFetchTimeout = 10 * time.Second
 
 var (
-	projectSelectedStyle = lipgloss.NewStyle().Foreground(projectColor).Bold(true)
-	projectBarStyle      = lipgloss.NewStyle().Foreground(projectColor)
-	cleanBranchStyle     = lipgloss.NewStyle().Foreground(cleanColor)
-	dirtyBranchStyle     = lipgloss.NewStyle().Foreground(dirtyColor)
-	aheadBehindStyle     = lipgloss.NewStyle().Foreground(aheadBehindColor)
+	projectsAccent   = lipgloss.Color("2")
+	cleanBranchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	dirtyBranchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	aheadBehindStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 
 	projectSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -76,18 +74,14 @@ type editorDoneMsg struct {
 
 type Projects struct {
 	cfg       ProjectsConfig
-	projects  []project
-	filtered  []int
-	query     string
-	cursor    int
-	loaded    bool
+	list      list[project]
 	pending   int
 	frame     int
 	errorText string
 }
 
 func NewProjects(cfg ProjectsConfig) Projects {
-	return Projects{cfg: cfg}
+	return Projects{cfg: cfg, list: newList(func(item project) string { return item.name })}
 }
 
 func (Projects) Name() string    { return "Proj" }
@@ -161,13 +155,11 @@ func (p Projects) Update(msg tea.Msg) (Mode, tea.Cmd) {
 }
 
 func (p Projects) handleLoaded(msg projectsLoadedMsg) (Mode, tea.Cmd) {
-	p.projects = msg
-	p.loaded = true
-	p.refilter()
+	p.list.setItems(msg)
 
 	var cmds []tea.Cmd
 
-	for _, item := range p.projects {
+	for _, item := range p.list.items {
 		if item.git {
 			p.pending++
 
@@ -183,21 +175,21 @@ func (p Projects) handleLoaded(msg projectsLoadedMsg) (Mode, tea.Cmd) {
 }
 
 func (p Projects) handleStatus(msg projectStatusMsg) (Mode, tea.Cmd) {
-	projects := make([]project, len(p.projects))
-	copy(projects, p.projects)
+	items := make([]project, len(p.list.items))
+	copy(items, p.list.items)
 
-	for i := range projects {
-		if projects[i].name == msg.name {
-			projects[i].statusKnown = true
-			projects[i].branch = msg.status.branch
-			projects[i].dirty = msg.status.dirty
-			projects[i].ahead = msg.status.ahead
-			projects[i].behind = msg.status.behind
-			projects[i].fetchFailed = msg.fetchFailed
+	for i := range items {
+		if items[i].name == msg.name {
+			items[i].statusKnown = true
+			items[i].branch = msg.status.branch
+			items[i].dirty = msg.status.dirty
+			items[i].ahead = msg.status.ahead
+			items[i].behind = msg.status.behind
+			items[i].fetchFailed = msg.fetchFailed
 		}
 	}
 
-	p.projects = projects
+	p.list.setItems(items)
 
 	if p.pending > 0 {
 		p.pending--
@@ -292,69 +284,33 @@ func parseGitStatus(output string) gitStatus {
 }
 
 func (p Projects) SetQuery(query string) Mode {
-	p.query = query
-	p.cursor = 0
 	p.errorText = ""
-	p.refilter()
+	p.list.setQuery(query)
 
 	return p
 }
 
-func (p *Projects) refilter() {
-	query := strings.TrimSpace(p.query)
-
-	if query == "" {
-		p.filtered = make([]int, len(p.projects))
-
-		for i := range p.projects {
-			p.filtered[i] = i
-		}
-	} else {
-		names := make([]string, len(p.projects))
-
-		for i, item := range p.projects {
-			names[i] = item.name
-		}
-
-		matches := fuzzy.Find(query, names)
-		p.filtered = make([]int, len(matches))
-
-		for i, match := range matches {
-			p.filtered[i] = match.Index
-		}
-	}
-
-	if p.cursor >= len(p.filtered) {
-		p.cursor = max(0, len(p.filtered)-1)
-	}
-}
-
-func (p Projects) HasResults() bool {
-	return p.loaded && len(p.filtered) > 0
-}
+func (p Projects) HasResults() bool { return p.list.hasResults() }
 
 func (p Projects) MoveUp() Mode {
-	if p.cursor > 0 {
-		p.cursor--
-	}
+	p.list.moveUp()
 
 	return p
 }
 
 func (p Projects) MoveDown() Mode {
-	if p.cursor < len(p.filtered)-1 {
-		p.cursor++
-	}
+	p.list.moveDown()
 
 	return p
 }
 
 func (p Projects) Activate() tea.Cmd {
-	if len(p.filtered) == 0 {
+	item, ok := p.list.selected()
+
+	if !ok {
 		return nil
 	}
 
-	item := p.projects[p.filtered[p.cursor]]
 	editor := resolveEditor(p.cfg.Editor)
 
 	if editor == "" {
@@ -402,28 +358,19 @@ func editorArgv(editor string) []string {
 
 func (p Projects) View(width, rows int) string {
 	switch {
-	case !p.loaded:
+	case !p.list.loaded:
 		return subtleStyle.Render("scanning projects…")
-	case len(p.projects) == 0:
+	case len(p.list.items) == 0:
 		return subtleStyle.Render("no projects in " + p.cfg.Dir)
-	case len(p.filtered) == 0:
+	case len(p.list.filtered) == 0:
 		return subtleStyle.Render("no matching projects")
 	}
 
-	var lines []string
-
 	if p.errorText != "" {
-		lines = append(lines, errorStyle.Render(p.errorText))
-		rows--
+		return errorStyle.Render(p.errorText) + "\n" + p.list.view(width, rows-1, p.renderProject)
 	}
 
-	start, end := visibleRange(p.cursor, rows, len(p.filtered))
-
-	for i := start; i < end; i++ {
-		lines = append(lines, p.renderProject(p.projects[p.filtered[i]], i == p.cursor, width))
-	}
-
-	return strings.Join(lines, "\n")
+	return p.list.view(width, rows, p.renderProject)
 }
 
 func (p Projects) renderProject(item project, selected bool, width int) string {
@@ -435,16 +382,12 @@ func (p Projects) renderProject(item project, selected bool, width int) string {
 	sub := ""
 
 	if status != "" {
-		if gap := avail - displayWidth(name); gap > statusWidth+1 {
+		if gap := avail - lipgloss.Width(name); gap > statusWidth+1 {
 			sub = strings.Repeat(" ", gap-statusWidth) + status
 		}
 	}
 
-	if selected {
-		return projectBarStyle.Render("▌ ") + projectSelectedStyle.Render(name) + sub
-	}
-
-	return "  " + nameStyle.Render(name) + sub
+	return renderRow(projectsAccent, selected, name, sub)
 }
 
 func (p Projects) projectStatus(item project) (string, int) {
@@ -455,7 +398,7 @@ func (p Projects) projectStatus(item project) (string, int) {
 	if !item.statusKnown {
 		frame := projectSpinnerFrames[p.frame%len(projectSpinnerFrames)]
 
-		return subtleStyle.Render(frame), displayWidth(frame)
+		return subtleStyle.Render(frame), lipgloss.Width(frame)
 	}
 
 	branch := item.branch
@@ -471,7 +414,7 @@ func (p Projects) projectStatus(item project) (string, int) {
 	}
 
 	styled := branchStyle.Render(branch)
-	statusWidth := displayWidth(branch)
+	statusWidth := lipgloss.Width(branch)
 
 	arrows := ""
 
@@ -488,11 +431,11 @@ func (p Projects) projectStatus(item project) (string, int) {
 
 	if arrows != "" {
 		prefix = aheadBehindStyle.Render(arrows)
-		prefixWidth = displayWidth(arrows)
+		prefixWidth = lipgloss.Width(arrows)
 	}
 
 	if item.fetchFailed {
-		prefix += nameStyle.Render("!")
+		prefix += "!"
 		prefixWidth++
 	}
 

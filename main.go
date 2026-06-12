@@ -12,12 +12,24 @@ import (
 )
 
 func main() {
-	run := flag.Bool("r", false, "start in Run mode")
-	calculator := flag.Bool("c", false, "start in Calculator mode")
-	passwords := flag.Bool("p", false, "start in Passwords mode")
-	projects := flag.Bool("o", false, "start in Projects mode")
-	clipboard := flag.Bool("v", false, "start in Clipboard mode")
-	web := flag.Bool("s", false, "start in Web search mode")
+	modeFlags := []struct {
+		letter string
+		name   string
+	}{
+		{"r", "Run"},
+		{"c", "Calculator"},
+		{"p", "Passwords"},
+		{"o", "Projects"},
+		{"v", "Clipboard"},
+		{"s", "Web search"},
+	}
+
+	selected := make([]*bool, len(modeFlags))
+
+	for i, mode := range modeFlags {
+		selected[i] = flag.Bool(mode.letter, false, "start in "+mode.name+" mode")
+	}
+
 	watch := flag.Bool("watch", false, "watch the clipboard and record history")
 	record := flag.Bool("record", false, "record stdin into clipboard history")
 
@@ -29,27 +41,14 @@ func main() {
 		return
 	}
 
-	startLetter := ""
-
-	switch {
-	case *run:
-		startLetter = "r"
-	case *calculator:
-		startLetter = "c"
-	case *passwords:
-		startLetter = "p"
-	case *projects:
-		startLetter = "o"
-	case *clipboard:
-		startLetter = "v"
-	case *web:
-		startLetter = "s"
-	}
-
 	startHotkey := ""
 
-	if startLetter != "" {
-		startHotkey = "ctrl+" + startLetter
+	for i, mode := range modeFlags {
+		if *selected[i] {
+			startHotkey = "ctrl+" + mode.letter
+
+			break
+		}
 	}
 
 	app, err := tui.New(startHotkey)

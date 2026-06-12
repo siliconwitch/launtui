@@ -1,6 +1,10 @@
 package widgets
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 func TestRecordClipboardText(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
@@ -79,7 +83,7 @@ func TestTruncateByDisplayWidth(t *testing.T) {
 
 	wide := truncate("日本語テキスト", 5)
 
-	if displayWidth(wide) > 5 {
-		t.Fatalf("truncate(wide, 5) = %q (width %d)", wide, displayWidth(wide))
+	if lipgloss.Width(wide) > 5 {
+		t.Fatalf("truncate(wide, 5) = %q (width %d)", wide, lipgloss.Width(wide))
 	}
 }

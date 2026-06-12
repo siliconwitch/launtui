@@ -73,15 +73,18 @@ func TestUnitConversions(t *testing.T) {
 	calculator := NewCalculator(DefaultCalculatorConfig())
 
 	cases := map[string]string{
-		"5 miles to km": "8.04672 km",
-		"miles to km":   "1.609344 km",
-		"10km to mi":    "6.213712 mi",
-		"100 f to c":    "37.777778 °C",
-		"0 c to f":      "32 °F",
-		"2*3 m to ft":   "19.685039 ft",
-		"1 gib to mb":   "1073.741824 MB",
-		"90 min in h":   "1.5 h",
-		"12 in to cm":   "30.48 cm",
+		"5 miles to km":   "8.04672 km",
+		"miles to km":     "1.609344 km",
+		"10km to mi":      "6.213712 mi",
+		"100 f to c":      "37.777778 °C",
+		"0 c to f":        "32 °F",
+		"2*3 m to ft":     "19.685039 ft",
+		"1 gib to mb":     "1073.741824 MB",
+		"90 min in h":     "1.5 h",
+		"12 in to cm":     "30.48 cm",
+		"5 ms to s":       "0.005 s",
+		"3 kms to m":      "3000 m",
+		"2 hours to mins": "120 min",
 	}
 
 	for input, want := range cases {

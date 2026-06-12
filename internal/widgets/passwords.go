@@ -11,7 +11,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sahilm/fuzzy"
 )
 
 type PasswordsConfig struct {
@@ -25,10 +24,7 @@ func DefaultPasswordsConfig() PasswordsConfig {
 	return PasswordsConfig{Enabled: true}
 }
 
-var (
-	passwordSelectedStyle = lipgloss.NewStyle().Foreground(passwordColor).Bold(true)
-	passwordBarStyle      = lipgloss.NewStyle().Foreground(passwordColor)
-)
+var passwordsAccent = lipgloss.Color("3")
 
 type passwordEntriesMsg []string
 
@@ -41,16 +37,12 @@ type passwordCopyBlockedMsg struct{}
 
 type Passwords struct {
 	cfg       PasswordsConfig
-	entries   []string
-	filtered  []string
-	query     string
-	cursor    int
-	loaded    bool
+	list      list[string]
 	errorText string
 }
 
 func NewPasswords(cfg PasswordsConfig) Passwords {
-	return Passwords{cfg: cfg}
+	return Passwords{cfg: cfg, list: newList(func(entry string) string { return entry })}
 }
 
 func (Passwords) Name() string    { return "Pass" }
@@ -132,9 +124,7 @@ func scanPasswordStore(store string) []string {
 func (p Passwords) Update(msg tea.Msg) (Mode, tea.Cmd) {
 	switch msg := msg.(type) {
 	case passwordEntriesMsg:
-		p.entries = msg
-		p.loaded = true
-		p.refilter()
+		p.list.setItems(msg)
 
 		return p, nil
 
@@ -188,59 +178,34 @@ func (p Passwords) handleShown(msg passwordShownMsg) (Mode, tea.Cmd) {
 }
 
 func (p Passwords) SetQuery(query string) Mode {
-	p.query = query
-	p.cursor = 0
 	p.errorText = ""
-	p.refilter()
+	p.list.setQuery(query)
 
 	return p
 }
 
-func (p *Passwords) refilter() {
-	query := strings.TrimSpace(p.query)
-
-	if query == "" {
-		p.filtered = p.entries
-	} else {
-		matches := fuzzy.Find(query, p.entries)
-		p.filtered = make([]string, len(matches))
-
-		for i, match := range matches {
-			p.filtered[i] = p.entries[match.Index]
-		}
-	}
-
-	if p.cursor >= len(p.filtered) {
-		p.cursor = max(0, len(p.filtered)-1)
-	}
-}
-
-func (p Passwords) HasResults() bool {
-	return p.loaded && len(p.filtered) > 0
-}
+func (p Passwords) HasResults() bool { return p.list.hasResults() }
 
 func (p Passwords) MoveUp() Mode {
-	if p.cursor > 0 {
-		p.cursor--
-	}
+	p.list.moveUp()
 
 	return p
 }
 
 func (p Passwords) MoveDown() Mode {
-	if p.cursor < len(p.filtered)-1 {
-		p.cursor++
-	}
+	p.list.moveDown()
 
 	return p
 }
 
 func (p Passwords) Activate() tea.Cmd {
-	if len(p.filtered) == 0 {
+	entry, ok := p.list.selected()
+
+	if !ok {
 		return nil
 	}
 
-	return showPasswordCmd(p.filtered[p.cursor])
+	return showPasswordCmd(entry)
 }
 
 func showPasswordCmd(entry string) tea.Cmd {
@@ -266,36 +231,21 @@ func showPasswordCmd(entry string) tea.Cmd {
 
 func (p Passwords) View(width, rows int) string {
 	switch {
-	case !p.loaded:
+	case !p.list.loaded:
 		return subtleStyle.Render("scanning password store…")
-	case len(p.entries) == 0:
+	case len(p.list.items) == 0:
 		return subtleStyle.Render("no password store found")
-	case len(p.filtered) == 0:
+	case len(p.list.filtered) == 0:
 		return subtleStyle.Render("no matching passwords")
 	}
 
-	var lines []string
-
 	if p.errorText != "" {
-		lines = append(lines, errorStyle.Render(p.errorText))
-		rows--
+		return errorStyle.Render(p.errorText) + "\n" + p.list.view(width, rows-1, p.renderEntry)
 	}
 
-	start, end := visibleRange(p.cursor, rows, len(p.filtered))
-
-	for i := start; i < end; i++ {
-		lines = append(lines, p.renderEntry(p.filtered[i], i == p.cursor, width))
-	}
-
-	return strings.Join(lines, "\n")
+	return p.list.view(width, rows, p.renderEntry)
 }
 
 func (p Passwords) renderEntry(entry string, selected bool, width int) string {
-	name := truncate(entry, max(width-2, 1))
-
-	if selected {
-		return passwordBarStyle.Render("▌ ") + passwordSelectedStyle.Render(name)
-	}
-
-	return "  " + nameStyle.Render(name)
+	return renderRow(passwordsAccent, selected, truncate(entry, max(width-2, 1)), "")
 }

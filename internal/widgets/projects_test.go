@@ -63,13 +63,13 @@ func TestProjectsCursorResetsOnQueryChange(t *testing.T) {
 
 	moved := mode.MoveDown().MoveDown().(Projects)
 
-	if moved.cursor != 2 {
-		t.Fatalf("cursor = %d, want 2", moved.cursor)
+	if moved.list.cursor != 2 {
+		t.Fatalf("cursor = %d, want 2", moved.list.cursor)
 	}
 
 	typed := moved.SetQuery("a").(Projects)
 
-	if typed.cursor != 0 {
-		t.Fatalf("cursor after typing = %d, want 0", typed.cursor)
+	if typed.list.cursor != 0 {
+		t.Fatalf("cursor after typing = %d, want 0", typed.list.cursor)
 	}
 }

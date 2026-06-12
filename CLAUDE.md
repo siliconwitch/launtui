@@ -46,11 +46,11 @@ never describe product functionality or per-feature behaviour. Keep it that way.
   together. Also owns the shared search input and the set of modes: it tracks
   the current mode, switches automatically to the first mode that has results
   for the query (unless a hotkey or startup flag has pinned one), and feeds the
-  query to every mode.
-- **`internal/tui/config.go`** — the generic configuration loader. Resolves the
-  config path (`$LAUNTUI_CONFIG` overrides the default, which also gives tests
-  a hermetic seam) and overlays the on-disk file onto each widget's defaults.
-  It is widget-agnostic and never changes when widgets are added or removed.
+  query to every mode. Also holds the generic configuration loader: it
+  resolves the config path (`$LAUNTUI_CONFIG` overrides the default, which
+  also gives tests a hermetic seam) and overlays the on-disk file onto each
+  widget's defaults; the loader is widget-agnostic and never changes when
+  widgets are added or removed.
 
 ## Widget structure
 
@@ -58,10 +58,14 @@ Every widget lives in `internal/widgets/<name>.go` and contains, together: its
 config struct (with `toml` tags) and defaults, the method exposing its config
 section name, its model type and constructor, its message handling, and its
 rendering helpers, plus any private message types it needs. Shared,
-widget-agnostic helpers live in `internal/widgets/styles.go` (colours,
-display-width text helpers, list windowing) and `internal/widgets/system.go`
-(OS integration: clipboard access and recording, JSON storage under the XDG
-directories, detached process spawning).
+widget-agnostic code lives in `internal/widgets/widgets.go` (the mode
+interfaces and app-level messages, the generic fuzzy-filtered `list` with
+cursor, selection, and windowed rendering, accent-row rendering, shared
+styles, text truncation, and the history slice helpers) and
+`internal/widgets/system.go` (OS integration: clipboard access and recording,
+JSON storage under the XDG directories, detached process spawning). A mode
+whose UI is a single filterable list holds a `list` field and keeps only its
+own row rendering and activation logic.
 
 A widget that can be hidden carries an `Enabled bool` (toml `enabled`, default
 `true`) in its config and exposes an `Enabled() bool` method; each widget
@@ -69,7 +73,7 @@ guards its own startup `Cmd` with it, and `app.go` consults it to omit the
 widget from the layout.
 
 A **mode** is a searchable widget (Run, Calculator, …) that satisfies the
-`widgets.Mode` interface in `mode.go`: it takes the shared query, reports whether
+`widgets.Mode` interface in `widgets.go`: it takes the shared query, reports whether
 it has results, navigates and activates a selection, and renders its own list.
 Modes share the app-owned input rather than carrying their own, and declare
 their display name and `ctrl`-hotkey so the mode bar, auto-switching, startup
