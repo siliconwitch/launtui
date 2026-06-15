@@ -6,6 +6,10 @@ never describe product functionality or per-feature behaviour. Keep it that way.
 
 ## Coding principles
 
+> TODO Make this section generic such that I can reuse the same block in CLAUDE.md files for other projects
+
+> TODO based on looking at my code, is there any other stylistic preferences in use? If so include them below
+
 - **Complete names.** Use descriptive, whole-word names for non-trivial
   variables (`tuiWidth`, not `boxW`). Short names are acceptable only for
   receivers, loop indices, `err`, and `ok`.
@@ -33,6 +37,8 @@ never describe product functionality or per-feature behaviour. Keep it that way.
 
 ## Architecture principles
 
+> TODO looking at my code, are there any other architectural choices which stand out and could be solidified here?
+
 - **The Elm Architecture (Bubble Tea).** State lives in models, transitions
   happen in `Update`, side effects are expressed as `Cmd`s. Never block and
   never spawn goroutines directly — express asynchronous work as a `Cmd`.
@@ -42,6 +48,8 @@ never describe product functionality or per-feature behaviour. Keep it that way.
   loader's interface structurally.
 
 ## Operational principles
+
+> Can any of these last few sections be cleaned up or trimmed down? Anything that isn't completely needed as coding guidelines can probably be cleaned up
 
 - Build and run with cgo disabled for a static, dependency-free binary:
   `CGO_ENABLED=0 go build`.

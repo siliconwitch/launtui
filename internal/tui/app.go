@@ -39,35 +39,45 @@ type App struct {
 }
 
 func New(startHotkey string) (App, error) {
-	runCfg := widgets.DefaultRunConfig()
-	calculatorCfg := widgets.DefaultCalculatorConfig()
-	passwordsCfg := widgets.DefaultPasswordsConfig()
-	projectsCfg := widgets.DefaultProjectsConfig()
-	clipboardCfg := widgets.DefaultClipboardConfig()
-	webCfg := widgets.DefaultWebConfig()
-	clockCfg := widgets.DefaultClockConfig()
-	batteryCfg := widgets.DefaultBatteryConfig()
-	helpCfg := widgets.DefaultHelpConfig()
+	runConfig := widgets.DefaultRunConfig()
+	calculatorConfig := widgets.DefaultCalculatorConfig()
+	passwordsConfig := widgets.DefaultPasswordsConfig()
+	projectsConfig := widgets.DefaultProjectsConfig()
+	clipboardConfig := widgets.DefaultClipboardConfig()
+	// TODO add emoji picker feature
+	webConfig := widgets.DefaultWebConfig()
+	clockConfig := widgets.DefaultClockConfig()
+	batteryConfig := widgets.DefaultBatteryConfig()
+	helpConfig := widgets.DefaultHelpConfig()
 
-	err := LoadConfig(&runCfg, &calculatorCfg, &passwordsCfg, &projectsCfg, &clipboardCfg,
-		&webCfg, &clockCfg, &batteryCfg, &helpCfg)
+	err := LoadConfig(
+		&runConfig,
+		&calculatorConfig,
+		&passwordsConfig,
+		&projectsConfig,
+		&clipboardConfig,
+		&webConfig,
+		&clockConfig,
+		&batteryConfig,
+		&helpConfig,
+	)
 
 	input := textinput.New()
 	input.Prompt = "❯ "
-	input.Placeholder = "Type to search, or Ctrl+h for help"
+	input.Placeholder = "Type to search, or Ctrl+h for help" // TODO this text is getting cut off. Fix it
 	input.Focus()
 
 	app := App{
-		clock:   widgets.NewClock(clockCfg),
-		battery: widgets.NewBattery(batteryCfg),
+		clock:   widgets.NewClock(clockConfig),
+		battery: widgets.NewBattery(batteryConfig),
 		input:   input,
 		modes: []widgets.Mode{
-			widgets.NewRun(runCfg),
-			widgets.NewCalculator(calculatorCfg),
-			widgets.NewPasswords(passwordsCfg),
-			widgets.NewProjects(projectsCfg),
-			widgets.NewClipboard(clipboardCfg),
-			widgets.NewWeb(webCfg),
+			widgets.NewRun(runConfig),
+			widgets.NewCalculator(calculatorConfig),
+			widgets.NewPasswords(passwordsConfig),
+			widgets.NewProjects(projectsConfig),
+			widgets.NewClipboard(clipboardConfig),
+			widgets.NewWeb(webConfig),
 		},
 		auto: true,
 	}
@@ -93,7 +103,7 @@ func New(startHotkey string) (App, error) {
 		{Keys: "alt+del", Desc: "clear the mode's history"},
 	}
 
-	if len(clockCfg.Zones) > 0 {
+	if len(clockConfig.Zones) > 0 {
 		bindings = append(bindings, widgets.HelpBinding{Keys: "ctrl+t", Desc: "switch time zone"})
 	}
 
@@ -103,12 +113,13 @@ func New(startHotkey string) (App, error) {
 		}
 	}
 
-	app.help = widgets.NewHelp(helpCfg).WithBindings(bindings)
+	app.help = widgets.NewHelp(helpConfig).WithBindings(bindings)
 
 	return app, err
 }
 
 func (a App) Init() tea.Cmd {
+	// TODO Possible the default terminal cursor rather than a flashing block?
 	cmds := []tea.Cmd{textinput.Blink, a.clock.Init(), a.battery.Init()}
 
 	for _, mode := range a.modes {
@@ -403,7 +414,7 @@ func (a App) View() string {
 	bar := strings.Join(modes, "  ")
 
 	if a.auto {
-		bar += modeInactiveStyle.Render("  · auto")
+		bar += modeInactiveStyle.Render("  · auto") // TODO rather than showing this in the mode bar, modify the placeholder text
 	}
 
 	left := lipgloss.JoinVertical(lipgloss.Left, bar, a.input.View())
@@ -446,6 +457,7 @@ type Section interface {
 	SectionName() string
 }
 
+// TODO inline this in the init and get rid of Section if it's not needed
 func LoadConfig(targets ...Section) error {
 	path := os.Getenv("LAUNTUI_CONFIG")
 

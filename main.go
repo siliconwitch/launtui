@@ -31,11 +31,10 @@ func main() {
 	}
 
 	watch := flag.Bool("watch", false, "watch the clipboard and record history")
-	record := flag.Bool("record", false, "record stdin into clipboard history")
 
 	flag.Parse()
 
-	if *watch || *record {
+	if *watch {
 		cfg := widgets.DefaultClipboardConfig()
 
 		if err := tui.LoadConfig(&cfg); err != nil {

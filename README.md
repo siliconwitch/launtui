@@ -1,5 +1,9 @@
 # launtui
 
+> TODO update this README including the usage and config sections which are missing the latest features
+
+> TODO I want to include a GIF of the app. Create a placeholder. The gif should do most the talking, and below should be a clean, simple bullet point feature list. No need to overexplain
+
 A fast, keyboard-driven launcher for the terminal, with a clock and battery
 readout at a glance. One search box, six modes:
 

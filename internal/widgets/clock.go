@@ -3,7 +3,7 @@ package widgets
 import (
 	"strings"
 	"time"
-	_ "time/tzdata"
+	_ "time/tzdata" // TODO I don't like tz strings because they're a bit limied. I want to use any city eg America/San_Francisco and it shows (San Francisco) in the time widget when selected. Is there a library with all the mappings?
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

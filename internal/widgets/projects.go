@@ -25,7 +25,7 @@ type ProjectsConfig struct {
 func (ProjectsConfig) SectionName() string { return "projects" }
 
 func DefaultProjectsConfig() ProjectsConfig {
-	return ProjectsConfig{Enabled: true, Dirs: []string{"~/projects"}}
+	return ProjectsConfig{Enabled: true, Dirs: []string{"~/Documents"}}
 }
 
 const projectFetchTimeout = 10 * time.Second
@@ -403,6 +403,7 @@ func (p Projects) Activate(index int) tea.Cmd {
 	}
 }
 
+// TODO I don't need this. Just open the project in the default editor or the one specified in the config if there is one
 var terminalEditors = map[string]bool{
 	"hx": true, "helix": true, "vi": true, "vim": true, "nvim": true,
 	"nano": true, "micro": true, "kak": true, "kakoune": true,

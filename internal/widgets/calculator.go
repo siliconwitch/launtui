@@ -417,6 +417,7 @@ type unitDefinition struct {
 	label    string
 }
 
+// TODO add dec, hex, bin, oct, ascii convertor
 var unitDefinitions = map[string]unitDefinition{
 	"nm":  {"length", 1e-9, 0, "nm"},
 	"um":  {"length", 1e-6, 0, "µm"},
@@ -445,6 +446,11 @@ var unitDefinitions = map[string]unitDefinition{
 	"cup":  {"volume", 0.2365882365, 0, "cups"},
 	"pt":   {"volume", 0.473176473, 0, "pt"},
 	"gal":  {"volume", 3.785411784, 0, "gal"},
+
+	// TODO volumetic flow
+	// TODO force
+	// TODO pressure
+	// TODO torque
 
 	"c": {"temperature", 1, 273.15, "°C"},
 	"f": {"temperature", 5.0 / 9.0, 459.67 * 5.0 / 9.0, "°F"},
@@ -515,19 +521,26 @@ var unitDefinitions = map[string]unitDefinition{
 	"mv": {"voltage", 1e-3, 0, "mV"},
 	"v":  {"voltage", 1, 0, "V"},
 	"kv": {"voltage", 1e3, 0, "kV"},
+	// TODO MV,
+	// TODO dbV, dBmV, dBuV
 
 	"ua": {"current", 1e-6, 0, "µA"},
 	"ma": {"current", 1e-3, 0, "mA"},
 	"a":  {"current", 1, 0, "A"},
 	"ka": {"current", 1e3, 0, "kA"},
+	// TODO MA
 
 	"mw":       {"power", 1e-3, 0, "mW"},
 	"w":        {"power", 1, 0, "W"},
 	"kw":       {"power", 1e3, 0, "kW"},
 	"megawatt": {"power", 1e6, 0, "MW"},
 	"gw":       {"power", 1e9, 0, "GW"},
+	// TODO TW
+	// TODO horsepower
+	// TODO dB dBm
 }
 
+// TODO clean up all the duplicates in here. Also the alignment is a mess. Keep keys on their own line rather than combining lines
 var unitAliases = map[string]string{
 	"nanometre": "nm", "nanometer": "nm",
 	"micron": "um", "micrometre": "um", "micrometer": "um", "µm": "um",
@@ -644,7 +657,7 @@ func formatNumber(value float64, precision int) string {
 	return text
 }
 
-// TODO is it a good idea to manually calculate expressions? Surely there's a standard go library to evaluate complex expressions without the need to manually compute each step. This seems like it could create edge cases. Alternativly look for robust math libraries that could cover all kinds of mathematical calculations. I'd want to cover scientific calculations too such as factorials, trig, etc
+// TODO don't evaluate math manually. Use a robust library to avoid falling into edge cases. Support advanced math expressions such as sqrt, factorials, pi, trig functions, complex numbers, exponents, etc
 func evalExpression(input string) (float64, bool) {
 	parser := &expression{runes: []rune(input)}
 
