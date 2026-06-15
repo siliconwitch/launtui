@@ -2,15 +2,14 @@ package widgets
 
 import (
 	"bytes"
-	"io/fs"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type PasswordsConfig struct {
@@ -65,50 +64,70 @@ func (p Passwords) Init() tea.Cmd {
 		return nil
 	}
 
-	return func() tea.Msg {
-		store := ""
+	store := p.cfg.Store
 
-		if p.cfg.Store != "" {
-			store = expandHome(p.cfg.Store)
-		} else if dir := os.Getenv("PASSWORD_STORE_DIR"); dir != "" {
-			store = dir
-		} else if home, err := os.UserHomeDir(); err == nil {
-			store = filepath.Join(home, ".password-store")
+	return func() tea.Msg {
+		cmd := exec.Command("pass", "ls")
+
+		if store != "" {
+			cmd.Env = append(os.Environ(), "PASSWORD_STORE_DIR="+expandHome(store))
 		}
 
-		if store == "" {
+		output, err := cmd.Output()
+
+		if err != nil {
 			return passwordEntriesMsg(nil)
 		}
 
-		var entries []string
+		type treeNode struct {
+			depth int
+			name  string
+		}
 
-		_ = filepath.WalkDir(store, func(path string, entry fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
+		var nodes []treeNode
 
-			if entry.IsDir() {
-				if strings.HasPrefix(entry.Name(), ".") && path != store {
-					return filepath.SkipDir
+		for _, raw := range strings.Split(string(output), "\n") {
+			runes := []rune(strings.ReplaceAll(ansi.Strip(raw), "\u00a0", " "))
+
+			connector := -1
+
+			for index, glyph := range runes {
+				if glyph == '├' || glyph == '└' {
+					connector = index
+
+					break
 				}
-
-				return nil
 			}
 
-			if !strings.HasSuffix(entry.Name(), ".gpg") {
-				return nil
+			if connector < 0 {
+				continue
 			}
 
-			relative, err := filepath.Rel(store, path)
+			name := strings.TrimSpace(strings.TrimLeft(string(runes[connector+1:]), "─ "))
 
-			if err != nil {
-				return nil
+			if name == "" {
+				continue
 			}
 
-			entries = append(entries, strings.TrimSuffix(relative, ".gpg"))
+			nodes = append(nodes, treeNode{depth: connector / 4, name: name})
+		}
 
-			return nil
-		})
+		var entries []string
+		var ancestors []string
+
+		for index, node := range nodes {
+			if node.depth > len(ancestors) {
+				continue
+			}
+
+			ancestors = append(ancestors[:node.depth], node.name)
+
+			isFolder := index+1 < len(nodes) && nodes[index+1].depth > node.depth
+
+			if !isFolder {
+				entries = append(entries, strings.Join(ancestors, "/"))
+			}
+		}
 
 		sort.Strings(entries)
 
