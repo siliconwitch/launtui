@@ -12,13 +12,13 @@ func TestWebHistorySelection(t *testing.T) {
 
 	web := mode.SetQuery("google.com").(Web)
 
-	activatedURL := func(w Web) string {
+	activatedURL := func(index int) string {
 		t.Helper()
 
-		cmd := w.Activate()
+		cmd := web.Activate(index)
 
 		if cmd == nil {
-			t.Fatal("activating a selection should produce a command")
+			t.Fatalf("activating index %d should produce a command", index)
 		}
 
 		cmd()
@@ -38,20 +38,16 @@ func TestWebHistorySelection(t *testing.T) {
 		return saved[0].URL
 	}
 
-	if got := activatedURL(web); got != "https://google.com" {
+	if got := activatedURL(0); got != "https://google.com" {
 		t.Fatalf("live visit URL = %q, want the open action", got)
 	}
 
-	first := web.MoveDown().MoveDown().(Web)
-
-	if got := activatedURL(first); got != "https://github.com" {
+	if got := activatedURL(2); got != "https://github.com" {
 		t.Fatalf("first history visit URL = %q, want github", got)
 	}
 
-	clamped := first.MoveDown().MoveDown().(Web)
-
-	if clamped.cursor != 3 {
-		t.Fatalf("cursor = %d, should clamp at the last history entry", clamped.cursor)
+	if cmd := web.Activate(4); cmd != nil {
+		t.Fatal("activating past the last row should do nothing")
 	}
 }
 
@@ -63,10 +59,10 @@ func TestWebDeleteSelectedHistory(t *testing.T) {
 		{Label: "second", URL: "https://b.example"},
 	})
 
-	deleted, cmd, handled := mode.(Web).DeleteSelectedHistory()
+	deleted, cmd := mode.(Web).DeleteRow(0)
 
-	if !handled || cmd == nil {
-		t.Fatal("deleting a history entry should be handled and persisted")
+	if cmd == nil {
+		t.Fatal("deleting a history entry should be persisted")
 	}
 
 	web := deleted.(Web)
@@ -91,8 +87,8 @@ func TestWebDeleteSelectedHistory(t *testing.T) {
 
 	typed := web.SetQuery("google.com").(Web)
 
-	if _, _, handled := typed.DeleteSelectedHistory(); handled {
-		t.Fatal("delete on a live action should not be handled")
+	if _, cmd := typed.DeleteRow(0); cmd != nil {
+		t.Fatal("deleting a live action should do nothing")
 	}
 }
 
@@ -104,7 +100,7 @@ func TestWebClearHistory(t *testing.T) {
 		{Label: "second", URL: "https://b.example"},
 	})
 
-	cleared, cmd := mode.(Web).ClearHistory()
+	cleared, cmd := mode.(Web).ClearRows()
 
 	if len(cleared.(Web).history) != 0 {
 		t.Fatalf("history after clear = %+v", cleared.(Web).history)
@@ -131,7 +127,7 @@ func TestWebRecordsVisitsAndDeduplicates(t *testing.T) {
 	activate := func(query string) {
 		t.Helper()
 
-		cmd := web.SetQuery(query).(Web).Activate()
+		cmd := web.SetQuery(query).(Web).Activate(0)
 
 		if cmd == nil {
 			t.Fatalf("activating %q should produce a command", query)
@@ -162,7 +158,7 @@ func TestWebActions(t *testing.T) {
 
 	empty := web.SetQuery("").(Web)
 
-	if empty.HasResults() {
+	if HasResults(empty.Rows()) {
 		t.Fatal("empty query should produce no actions")
 	}
 

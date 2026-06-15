@@ -33,10 +33,7 @@ const (
 	currencyCacheMaxAge   = 24 * time.Hour
 )
 
-var (
-	calculatorAccent      = lipgloss.Color("5")
-	calculatorResultStyle = lipgloss.NewStyle().Foreground(calculatorAccent).Bold(true)
-)
+var calculatorAccent = lipgloss.Color("5")
 
 type calculation struct {
 	Expression string `json:"expression"`
@@ -60,7 +57,6 @@ type Calculator struct {
 	history     []calculation
 	rates       map[string]float64
 	ratesFailed bool
-	cursor      int
 }
 
 func NewCalculator(cfg CalculatorConfig) Calculator {
@@ -132,13 +128,7 @@ func (c Calculator) Update(msg tea.Msg) (Mode, tea.Cmd) {
 	case currencyRatesMsg:
 		c.rates = msg.rates
 		c.ratesFailed = msg.failed
-
-		liveBefore := c.liveCount()
 		c.evaluate()
-
-		if c.cursor > 0 {
-			c.cursor = max(c.cursor+c.liveCount()-liveBefore, 0)
-		}
 
 		return c, nil
 
@@ -186,49 +176,62 @@ func (c Calculator) Update(msg tea.Msg) (Mode, tea.Cmd) {
 
 func (c Calculator) SetQuery(query string) Mode {
 	c.query = strings.TrimSpace(query)
-	c.cursor = 0
 	c.evaluate()
 
 	return c
 }
 
-func (c Calculator) HasResults() bool { return c.valid }
+func (Calculator) Accent() lipgloss.Color { return calculatorAccent }
 
-func (c Calculator) liveCount() int {
+func (c Calculator) Status() string {
+	switch {
+	case c.valid:
+		return ""
+	case c.note != "":
+		return subtleStyle.Render(c.note)
+	case c.query != "":
+		return subtleStyle.Render("invalid expression")
+	case len(c.history) == 0:
+		return subtleStyle.Render("type an arithmetic expression")
+	}
+
+	return ""
+}
+
+func (c Calculator) Rows() []Row {
+	var rows []Row
+
 	if c.valid {
-		return 1
+		rows = append(rows, Row{left: "= " + c.answer, style: rowEmphasized})
 	}
 
-	return 0
-}
+	now := time.Now().Unix()
 
-func (c Calculator) itemCount() int {
-	return c.liveCount() + len(c.history)
-}
-
-func (c Calculator) MoveUp() Mode {
-	if c.cursor > 0 {
-		c.cursor--
+	for _, entry := range c.history {
+		rows = append(rows, Row{
+			left:      entry.Expression + " = " + entry.Answer,
+			right:     subtleStyle.Render(relativeAge(now - entry.Time)),
+			style:     rowDim,
+			Deletable: true,
+		})
 	}
 
-	return c
+	return rows
 }
 
-func (c Calculator) MoveDown() Mode {
-	if c.cursor < c.itemCount()-1 {
-		c.cursor++
+func (c Calculator) Activate(index int) tea.Cmd {
+	live := 0
+
+	if c.valid {
+		live = 1
 	}
 
-	return c
-}
-
-func (c Calculator) Activate() tea.Cmd {
 	answer := ""
 
-	if c.valid && c.cursor == 0 {
+	if c.valid && index == 0 {
 		answer = c.answer
-	} else if index := c.cursor - c.liveCount(); index >= 0 && index < len(c.history) {
-		answer = c.history[index].Answer
+	} else if entry := index - live; entry >= 0 && entry < len(c.history) {
+		answer = c.history[entry].Answer
 	} else {
 		return nil
 	}
@@ -241,25 +244,26 @@ func (c Calculator) Activate() tea.Cmd {
 	}
 }
 
-func (c Calculator) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
-	index := c.cursor - c.liveCount()
+func (c Calculator) DeleteRow(index int) (Mode, tea.Cmd) {
+	live := 0
 
-	if index < 0 || index >= len(c.history) {
-		return c, nil, false
+	if c.valid {
+		live = 1
 	}
 
-	c.history = removeAt(c.history, index)
+	entry := index - live
 
-	if c.cursor >= c.itemCount() {
-		c.cursor = max(c.itemCount()-1, 0)
+	if entry < 0 || entry >= len(c.history) {
+		return c, nil
 	}
 
-	return c, saveCalculatorHistoryCmd(c.history), true
+	c.history = removeAt(c.history, entry)
+
+	return c, saveCalculatorHistoryCmd(c.history)
 }
 
-func (c Calculator) ClearHistory() (Mode, tea.Cmd) {
+func (c Calculator) ClearRows() (Mode, tea.Cmd) {
 	c.history = nil
-	c.cursor = min(c.cursor, max(c.itemCount()-1, 0))
 
 	return c, saveCalculatorHistoryCmd(nil)
 }
@@ -276,41 +280,6 @@ func saveCalculatorHistoryCmd(history []calculation) tea.Cmd {
 
 		return nil
 	}
-}
-
-func (c Calculator) View(width, rows int) string {
-	var lines []string
-
-	switch {
-	case c.valid:
-		line := truncate("= "+c.answer, max(width-2, 1))
-
-		if c.cursor == 0 {
-			lines = append(lines, renderRow(calculatorAccent, true, line, ""))
-		} else {
-			lines = append(lines, "  "+calculatorResultStyle.Render(line))
-		}
-	case c.note != "":
-		lines = append(lines, subtleStyle.Render(c.note))
-	case c.query != "":
-		lines = append(lines, subtleStyle.Render("invalid expression"))
-	case len(c.history) == 0:
-		lines = append(lines, subtleStyle.Render("type an arithmetic expression"))
-	}
-
-	historyRows := rows - len(lines)
-
-	if len(c.history) > 0 && historyRows > 0 {
-		selected := c.cursor - c.liveCount()
-		start, end := visibleRange(max(selected, 0), historyRows, len(c.history))
-
-		for i := start; i < end; i++ {
-			line := truncate(c.history[i].Expression+" = "+c.history[i].Answer, max(width-2, 1))
-			lines = append(lines, renderHistoryRow(calculatorAccent, i == selected, line))
-		}
-	}
-
-	return strings.Join(lines, "\n")
 }
 
 func (c *Calculator) evaluate() {
@@ -448,6 +417,7 @@ type unitDefinition struct {
 	label    string
 }
 
+// TODO add more kinds of conversions. Common scientific and engineering conversions such as degrees to radians, speed of light, micro measurements (microns, mils, thou etc), electronic (nF to pF, ohm to millohm). Everything you can come up with to cover a wide range of professional use cases
 var unitDefinitions = map[string]unitDefinition{
 	"mm":  {"length", 0.001, 0, "mm"},
 	"cm":  {"length", 0.01, 0, "cm"},
@@ -510,6 +480,7 @@ var unitDefinitions = map[string]unitDefinition{
 	"year": {"time", 31557600, 0, "years"},
 }
 
+// TODO add more aliases as needed for the above
 var unitAliases = map[string]string{
 	"millimetre": "mm", "millimeter": "mm",
 	"centimetre": "cm", "centimeter": "cm",
@@ -588,6 +559,7 @@ func formatNumber(value float64, precision int) string {
 	return text
 }
 
+// TODO is it a good idea to manually calculate expressions? Surely there's a standard go library to evaluate complex expressions without the need to manually compute each step. This seems like it could create edge cases. Alternativly look for robust math libraries that could cover all kinds of mathematical calculations. I'd want to cover scientific calculations too such as factorials, trig, etc
 func evalExpression(input string) (float64, bool) {
 	parser := &expression{runes: []rune(input)}
 

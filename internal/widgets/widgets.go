@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,11 +17,10 @@ type Mode interface {
 	Init() tea.Cmd
 	Update(tea.Msg) (Mode, tea.Cmd)
 	SetQuery(query string) Mode
-	HasResults() bool
-	MoveUp() Mode
-	MoveDown() Mode
-	Activate() tea.Cmd
-	View(width, rows int) string
+	Rows() []Row
+	Accent() lipgloss.Color
+	Activate(index int) tea.Cmd
+	Status() string
 }
 
 type RequestQuitMsg struct{}
@@ -31,9 +31,13 @@ type StrongMatcher interface {
 	StrongMatch() bool
 }
 
-type HistoryEditor interface {
-	DeleteSelectedHistory() (Mode, tea.Cmd, bool)
-	ClearHistory() (Mode, tea.Cmd)
+type RowDeleter interface {
+	DeleteRow(index int) (Mode, tea.Cmd)
+	ClearRows() (Mode, tea.Cmd)
+}
+
+type Selectable interface {
+	Select(index int) (Mode, tea.Cmd)
 }
 
 var (
@@ -41,110 +45,81 @@ var (
 	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
-type list[T any] struct {
-	key      func(T) string
-	items    []T
-	filtered []T
-	query    string
-	cursor   int
-	loaded   bool
+type rowStyle int
+
+const (
+	rowPlain rowStyle = iota
+	rowDim
+	rowEmphasized
+)
+
+type Row struct {
+	left      string
+	right     string
+	style     rowStyle
+	Deletable bool
 }
 
-func newList[T any](key func(T) string) list[T] {
-	return list[T]{key: key}
-}
-
-func (l *list[T]) setItems(items []T) {
-	l.items = items
-	l.loaded = true
-	l.refilter()
-}
-
-func (l *list[T]) setQuery(query string) {
-	l.query = query
-	l.cursor = 0
-	l.refilter()
-}
-
-func (l *list[T]) refilter() {
-	query := strings.TrimSpace(l.query)
-
-	if query == "" {
-		l.filtered = l.items
-	} else {
-		names := make([]string, len(l.items))
-
-		for i, item := range l.items {
-			names[i] = l.key(item)
-		}
-
-		matches := fuzzy.Find(query, names)
-		l.filtered = make([]T, len(matches))
-
-		for i, match := range matches {
-			l.filtered[i] = l.items[match.Index]
+func HasResults(rows []Row) bool {
+	for _, row := range rows {
+		if row.style != rowDim {
+			return true
 		}
 	}
 
-	if l.cursor >= len(l.filtered) {
-		l.cursor = max(0, len(l.filtered)-1)
-	}
+	return false
 }
 
-func (l *list[T]) moveUp() {
-	if l.cursor > 0 {
-		l.cursor--
-	}
-}
+func RenderResults(status string, rows []Row, accent lipgloss.Color, cursor, width, height int) string {
+	var lines []string
 
-func (l *list[T]) moveDown() {
-	if l.cursor < len(l.filtered)-1 {
-		l.cursor++
-	}
-}
+	if status != "" {
+		lines = append(lines, status)
 
-func (l list[T]) hasResults() bool {
-	return l.loaded && len(l.filtered) > 0
-}
-
-func (l list[T]) selected() (T, bool) {
-	if len(l.filtered) == 0 {
-		var zero T
-
-		return zero, false
+		height -= lipgloss.Height(status)
 	}
 
-	return l.filtered[l.cursor], true
-}
+	if len(rows) > 0 && height > 0 {
+		start, end := visibleRange(cursor, height, len(rows))
 
-func (l list[T]) view(width, rows int, render func(item T, selected bool, width int) string) string {
-	start, end := visibleRange(l.cursor, rows, len(l.filtered))
-
-	lines := make([]string, 0, end-start)
-
-	for i := start; i < end; i++ {
-		lines = append(lines, render(l.filtered[i], i == l.cursor, width))
+		for i := start; i < end; i++ {
+			lines = append(lines, renderRow(accent, i == cursor, rows[i], width))
+		}
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-func renderRow(accent lipgloss.Color, selected bool, name, sub string) string {
+func renderRow(accent lipgloss.Color, selected bool, row Row, width int) string {
+	avail := max(width-2, 1)
+	name := row.left
+	sub := ""
+
+	if lipgloss.Width(name) > avail {
+		name = truncate(name, avail)
+	} else if row.right != "" {
+		gap := avail - lipgloss.Width(name)
+
+		if gap > 2 {
+			right := truncate(row.right, gap-1)
+			sub = strings.Repeat(" ", gap-lipgloss.Width(right)) + right
+		}
+	}
+
 	if selected {
 		accentStyle := lipgloss.NewStyle().Foreground(accent)
 
 		return accentStyle.Render("▌ ") + accentStyle.Bold(true).Render(name) + sub
 	}
 
-	return "  " + name + sub
-}
-
-func renderHistoryRow(accent lipgloss.Color, selected bool, name string) string {
-	if selected {
-		return renderRow(accent, true, name, "")
+	switch row.style {
+	case rowDim:
+		return "  " + subtleStyle.Render(name) + sub
+	case rowEmphasized:
+		return "  " + lipgloss.NewStyle().Foreground(accent).Bold(true).Render(name) + sub
+	default:
+		return "  " + name + sub
 	}
-
-	return "  " + subtleStyle.Render(name)
 }
 
 func truncate(s string, w int) string {
@@ -163,6 +138,19 @@ func truncate(s string, w int) string {
 	return ansi.Truncate(s, w-1, "") + "…"
 }
 
+func relativeAge(elapsed int64) string {
+	switch {
+	case elapsed < 60:
+		return "now"
+	case elapsed < 3600:
+		return strconv.FormatInt(elapsed/60, 10) + "m"
+	case elapsed < 86400:
+		return strconv.FormatInt(elapsed/3600, 10) + "h"
+	default:
+		return strconv.FormatInt(elapsed/86400, 10) + "d"
+	}
+}
+
 func visibleRange(cursor, rows, count int) (int, int) {
 	if rows < 1 {
 		rows = 1
@@ -175,6 +163,72 @@ func visibleRange(cursor, rows, count int) (int, int) {
 	}
 
 	return start, min(start+rows, count)
+}
+
+type list[T any] struct {
+	key      func(T) string
+	items    []T
+	filtered []T
+	query    string
+	loaded   bool
+}
+
+func newList[T any](key func(T) string) list[T] {
+	return list[T]{key: key}
+}
+
+func (l *list[T]) setItems(items []T) {
+	l.items = items
+	l.loaded = true
+	l.refilter()
+}
+
+func (l *list[T]) setQuery(query string) {
+	l.query = query
+	l.refilter()
+}
+
+func (l *list[T]) refilter() {
+	query := strings.TrimSpace(l.query)
+
+	if query == "" {
+		l.filtered = l.items
+
+		return
+	}
+
+	names := make([]string, len(l.items))
+
+	for i, item := range l.items {
+		names[i] = l.key(item)
+	}
+
+	matches := fuzzy.Find(query, names)
+	l.filtered = make([]T, len(matches))
+
+	for i, match := range matches {
+		l.filtered[i] = l.items[match.Index]
+	}
+}
+
+func (l list[T]) rows(cell func(item T) Row) []Row {
+	rows := make([]Row, len(l.filtered))
+
+	for i, item := range l.filtered {
+		rows[i] = cell(item)
+	}
+
+	return rows
+}
+
+func (l list[T]) at(index int) (T, bool) {
+	if index < 0 || index >= len(l.filtered) {
+		var zero T
+
+		return zero, false
+	}
+
+	return l.filtered[index], true
 }
 
 func removeAt[T any](entries []T, index int) []T {

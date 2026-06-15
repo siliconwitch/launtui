@@ -31,6 +31,7 @@ type App struct {
 	input   textinput.Model
 	modes   []widgets.Mode
 	current int
+	cursor  int
 	auto    bool
 
 	width  int
@@ -48,12 +49,12 @@ func New(startHotkey string) (App, error) {
 	batteryCfg := widgets.DefaultBatteryConfig()
 	helpCfg := widgets.DefaultHelpConfig()
 
-	err := Load(&runCfg, &calculatorCfg, &passwordsCfg, &projectsCfg, &clipboardCfg,
+	err := LoadConfig(&runCfg, &calculatorCfg, &passwordsCfg, &projectsCfg, &clipboardCfg,
 		&webCfg, &clockCfg, &batteryCfg, &helpCfg)
 
 	input := textinput.New()
 	input.Prompt = "❯ "
-	input.Placeholder = "Search…"
+	input.Placeholder = "Type to search, or Ctrl+h for help"
 	input.Focus()
 
 	app := App{
@@ -86,9 +87,14 @@ func New(startHotkey string) (App, error) {
 		{Keys: "type", Desc: "filter the list"},
 		{Keys: "↑ / ↓", Desc: "move selection"},
 		{Keys: "enter", Desc: "activate selection"},
+		{Keys: "esc", Desc: "quit"},
 		{Keys: "tab / shift+tab", Desc: "next / previous mode"},
 		{Keys: "del", Desc: "delete the selected history entry"},
-		{Keys: "ctrl+del", Desc: "clear the mode's history"},
+		{Keys: "alt+del", Desc: "clear the mode's history"},
+	}
+
+	if len(clockCfg.Zones) > 0 {
+		bindings = append(bindings, widgets.HelpBinding{Keys: "ctrl+t", Desc: "switch time zone"})
 	}
 
 	for _, mode := range app.modes {
@@ -96,11 +102,6 @@ func New(startHotkey string) (App, error) {
 			bindings = append(bindings, widgets.HelpBinding{Keys: mode.Hotkey(), Desc: mode.Name() + " mode"})
 		}
 	}
-
-	bindings = append(bindings,
-		widgets.HelpBinding{Keys: "ctrl+h", Desc: "toggle this help"},
-		widgets.HelpBinding{Keys: "esc", Desc: "quit"},
-	)
 
 	app.help = widgets.NewHelp(helpCfg).WithBindings(bindings)
 
@@ -128,16 +129,116 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case widgets.RequestQuitMsg:
-		cmd := a.close()
-
-		return a, cmd
+		return a, a.close()
 
 	case tea.KeyMsg:
-		return a.handleKey(msg)
-	}
+		key := msg.String()
 
-	if sequence, ok := msg.(fmt.Stringer); ok && ctrlDeleteSequences[sequence.String()] {
-		return a.clearCurrentHistory()
+		if key == "ctrl+h" {
+			a.help = a.help.Toggle()
+
+			return a, nil
+		}
+
+		if a.help.Visible() {
+			if key == "esc" {
+				a.help = a.help.Hide()
+			}
+
+			return a, nil
+		}
+
+		if key == "esc" {
+			return a, a.close()
+		}
+
+		for i, mode := range a.modes {
+			if mode.Enabled() && mode.Hotkey() == key {
+				a.current = i
+				a.auto = false
+				a.cursor = 0
+
+				return a, a.notifySelection()
+			}
+		}
+
+		var cmd tea.Cmd
+
+		switch key {
+		case "tab":
+			a.current = a.adjacentMode(1)
+			a.auto = false
+			a.cursor = 0
+
+			return a, a.notifySelection()
+
+		case "shift+tab":
+			a.current = a.adjacentMode(-1)
+			a.auto = false
+			a.cursor = 0
+
+			return a, a.notifySelection()
+
+		case "ctrl+t":
+			a.clock = a.clock.NextZone()
+
+			return a, nil
+
+		case "up":
+			if a.cursor > 0 {
+				a.cursor--
+			}
+
+			return a, a.notifySelection()
+
+		case "down":
+			if a.cursor < len(a.modes[a.current].Rows())-1 {
+				a.cursor++
+			}
+
+			return a, a.notifySelection()
+
+		case "enter":
+			return a, a.modes[a.current].Activate(a.cursor)
+
+		case "delete":
+			rows := a.modes[a.current].Rows()
+
+			if deleter, ok := a.modes[a.current].(widgets.RowDeleter); ok && a.cursor < len(rows) && rows[a.cursor].Deletable {
+				a.modes[a.current], cmd = deleter.DeleteRow(a.cursor)
+				a.clampCursor()
+
+				return a, cmd
+			}
+
+			return a, nil
+
+		case "alt+delete":
+			if deleter, ok := a.modes[a.current].(widgets.RowDeleter); ok {
+				a.modes[a.current], cmd = deleter.ClearRows()
+				a.clampCursor()
+
+				return a, cmd
+			}
+
+			return a, nil
+		}
+
+		previous := a.input.Value()
+
+		a.input, cmd = a.input.Update(msg)
+
+		if a.input.Value() != previous {
+			a.setQuery(a.input.Value())
+
+			if a.auto {
+				a.autoSwitch()
+			}
+
+			cmd = tea.Batch(cmd, a.notifySelection())
+		}
+
+		return a, cmd
 	}
 
 	var cmds []tea.Cmd
@@ -170,90 +271,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, tea.Batch(cmds...)
 }
 
-func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-
-	if key == "ctrl+h" {
-		a.help = a.help.Toggle()
-
-		return a, nil
-	}
-
-	if a.help.Visible() {
-		if key == "esc" {
-			a.help = a.help.Hide()
-		}
-
-		return a, nil
-	}
-
-	if key == "esc" {
-		cmd := a.close()
-
-		return a, cmd
-	}
-
-	for i, mode := range a.modes {
-		if mode.Enabled() && mode.Hotkey() == key {
-			a.current = i
-			a.auto = false
-
-			return a, nil
-		}
-	}
-
-	switch key {
-	case "tab":
-		a.current = a.adjacentMode(1)
-		a.auto = false
-
-		return a, nil
-
-	case "shift+tab":
-		a.current = a.adjacentMode(-1)
-		a.auto = false
-
-		return a, nil
-
-	case "up":
-		a.modes[a.current] = a.modes[a.current].MoveUp()
-
-		return a, nil
-
-	case "down":
-		a.modes[a.current] = a.modes[a.current].MoveDown()
-
-		return a, nil
-
-	case "enter":
-		return a, a.modes[a.current].Activate()
-
-	case "delete":
-		if editor, ok := a.modes[a.current].(widgets.HistoryEditor); ok {
-			if mode, cmd, handled := editor.DeleteSelectedHistory(); handled {
-				a.modes[a.current] = mode
-
-				return a, cmd
-			}
-		}
-	}
-
-	previous := a.input.Value()
-
-	var cmd tea.Cmd
-	a.input, cmd = a.input.Update(msg)
-
-	if a.input.Value() != previous {
-		a.setQuery(a.input.Value())
-
-		if a.auto {
-			a.autoSwitch()
-		}
-	}
-
-	return a, cmd
-}
-
 func (a App) adjacentMode(delta int) int {
 	count := len(a.modes)
 
@@ -268,31 +285,29 @@ func (a App) adjacentMode(delta int) int {
 	return a.current
 }
 
-var ctrlDeleteSequences = map[string]bool{
-	unknownCSIString("3;5~"): true,
-	unknownCSIString("3^"):   true,
+func (a *App) clampCursor() {
+	if rows := len(a.modes[a.current].Rows()); a.cursor >= rows {
+		a.cursor = max(rows-1, 0)
+	}
 }
 
-func unknownCSIString(parameters string) string {
-	return fmt.Sprintf("?CSI%+v?", []byte(parameters))
-}
+func (a *App) notifySelection() tea.Cmd {
+	selectable, ok := a.modes[a.current].(widgets.Selectable)
 
-func (a App) clearCurrentHistory() (tea.Model, tea.Cmd) {
-	if a.help.Visible() {
-		return a, nil
+	if !ok {
+		return nil
 	}
 
-	if editor, ok := a.modes[a.current].(widgets.HistoryEditor); ok {
-		mode, cmd := editor.ClearHistory()
-		a.modes[a.current] = mode
+	var cmd tea.Cmd
 
-		return a, cmd
-	}
+	a.modes[a.current], cmd = selectable.Select(a.cursor)
 
-	return a, nil
+	return cmd
 }
 
 func (a *App) setQuery(query string) {
+	a.cursor = 0
+
 	for i := range a.modes {
 		if a.modes[i].Enabled() {
 			a.modes[i] = a.modes[i].SetQuery(query)
@@ -338,7 +353,7 @@ func (a *App) autoSwitch() {
 	}
 
 	for i, mode := range a.modes {
-		if mode.Enabled() && mode.HasResults() {
+		if mode.Enabled() && widgets.HasResults(mode.Rows()) {
 			a.current = i
 
 			return
@@ -408,12 +423,20 @@ func (a App) View() string {
 
 	divider := dividerStyle.Render(strings.Repeat("─", contentWidth))
 
-	rows := tuiHeight - lipgloss.Height(header) - 1
+	bodyHeight := tuiHeight - lipgloss.Height(header) - 1
+
+	mode := a.modes[a.current]
+	rows := mode.Rows()
+	cursor := a.cursor
+
+	if cursor >= len(rows) {
+		cursor = max(len(rows)-1, 0)
+	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		divider,
-		a.modes[a.current].View(contentWidth, rows),
+		widgets.RenderResults(mode.Status(), rows, mode.Accent(), cursor, contentWidth, bodyHeight),
 	)
 
 	return appStyle.Width(tuiWidth).Height(tuiHeight).Render(body)
@@ -423,25 +446,17 @@ type Section interface {
 	SectionName() string
 }
 
-func ConfigPath() (string, error) {
-	if path := os.Getenv("LAUNTUI_CONFIG"); path != "" {
-		return path, nil
-	}
+func LoadConfig(targets ...Section) error {
+	path := os.Getenv("LAUNTUI_CONFIG")
 
-	dir, err := os.UserConfigDir()
+	if path == "" {
+		dir, err := os.UserConfigDir()
 
-	if err != nil {
-		return "", err
-	}
+		if err != nil {
+			return err
+		}
 
-	return filepath.Join(dir, "launtui", "config.toml"), nil
-}
-
-func Load(targets ...Section) error {
-	path, err := ConfigPath()
-
-	if err != nil {
-		return err
+		path = filepath.Join(dir, "launtui", "config.toml")
 	}
 
 	var raw map[string]toml.Primitive

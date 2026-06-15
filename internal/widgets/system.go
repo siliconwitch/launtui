@@ -1,3 +1,4 @@
+// TODO this file probably be split between app.go and widgets.go since it's central to how the app and widgets work. internal/widgets should only contain the widgets themselves and the widget.go file for common widget functions.
 package widgets
 
 import (
@@ -253,6 +254,24 @@ func expandHome(path string) string {
 	return path
 }
 
+func collapseHome(path string) string {
+	home, err := os.UserHomeDir()
+
+	if err != nil || home == "" {
+		return path
+	}
+
+	if path == home {
+		return "~"
+	}
+
+	if rest := strings.TrimPrefix(path, home+string(filepath.Separator)); rest != path {
+		return "~/" + rest
+	}
+
+	return path
+}
+
 func spawnDetached(dir string, argv ...string) {
 	if len(argv) == 0 || argv[0] == "" {
 		return
@@ -263,4 +282,44 @@ func spawnDetached(dir string, argv ...string) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	_ = cmd.Start()
+}
+
+func resolveTerminal(configured string) string {
+	if configured != "" {
+		return configured
+	}
+
+	if env := os.Getenv("TERMINAL"); env != "" {
+		return env
+	}
+
+	for _, candidate := range []string{
+		"foot", "alacritty", "kitty", "ghostty", "wezterm",
+		"gnome-terminal", "konsole", "xfce4-terminal", "xterm",
+	} {
+		if _, err := exec.LookPath(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	return ""
+}
+
+func terminalArgv(terminal, cmdline string) []string {
+	if terminal == "" {
+		return []string{"sh", "-c", cmdline}
+	}
+
+	switch filepath.Base(terminal) {
+	case "foot", "kitty":
+		return []string{terminal, "sh", "-c", cmdline}
+	case "wezterm":
+		return []string{terminal, "start", "--", "sh", "-c", cmdline}
+	case "gnome-terminal":
+		return []string{terminal, "--", "sh", "-c", cmdline}
+	case "xfce4-terminal":
+		return []string{terminal, "-x", "sh", "-c", cmdline}
+	default:
+		return []string{terminal, "-e", "sh", "-c", cmdline}
+	}
 }

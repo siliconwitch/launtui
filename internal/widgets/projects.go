@@ -2,10 +2,10 @@ package widgets
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,15 +15,17 @@ import (
 )
 
 type ProjectsConfig struct {
-	Enabled bool   `toml:"enabled"`
-	Dir     string `toml:"dir"`
-	Editor  string `toml:"editor"`
+	Enabled  bool     `toml:"enabled"`
+	Dirs     []string `toml:"dirs"`
+	Projects []string `toml:"projects"`
+	Editor   string   `toml:"editor"`
+	Terminal string   `toml:"terminal"`
 }
 
 func (ProjectsConfig) SectionName() string { return "projects" }
 
 func DefaultProjectsConfig() ProjectsConfig {
-	return ProjectsConfig{Enabled: true, Dir: "~/projects"}
+	return ProjectsConfig{Enabled: true, Dirs: []string{"~/projects"}}
 }
 
 const projectFetchTimeout = 10 * time.Second
@@ -35,12 +37,11 @@ var (
 	aheadBehindStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 
 	projectSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
-	errNoEditor = errors.New("no editor configured")
 )
 
 type project struct {
 	name        string
+	label       string
 	path        string
 	git         bool
 	statusKnown bool
@@ -61,16 +62,14 @@ type gitStatus struct {
 type projectsLoadedMsg []project
 
 type projectStatusMsg struct {
-	name        string
+	path        string
 	status      gitStatus
 	fetchFailed bool
 }
 
 type projectsTickMsg struct{}
 
-type editorDoneMsg struct {
-	err error
-}
+type editorMissingMsg struct{}
 
 type Projects struct {
 	cfg       ProjectsConfig
@@ -93,31 +92,72 @@ func (p Projects) Init() tea.Cmd {
 		return nil
 	}
 
+	dirs := p.cfg.Dirs
+	singles := p.cfg.Projects
+
 	return func() tea.Msg {
-		dir := expandHome(p.cfg.Dir)
-
-		entries, err := os.ReadDir(dir)
-
-		if err != nil {
-			return projectsLoadedMsg(nil)
-		}
-
 		var projects []project
 
-		for _, entry := range entries {
-			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-				continue
+		seen := map[string]bool{}
+
+		add := func(path string) {
+			path = filepath.Clean(path)
+
+			if seen[path] {
+				return
 			}
 
-			path := filepath.Join(dir, entry.Name())
+			seen[path] = true
 
 			_, statErr := os.Stat(filepath.Join(path, ".git"))
 
 			projects = append(projects, project{
-				name: entry.Name(),
+				name: filepath.Base(path),
 				path: path,
 				git:  statErr == nil,
 			})
+		}
+
+		for _, dir := range dirs {
+			base := expandHome(dir)
+
+			entries, err := os.ReadDir(base)
+
+			if err != nil {
+				continue
+			}
+
+			for _, entry := range entries {
+				if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+					add(filepath.Join(base, entry.Name()))
+				}
+			}
+		}
+
+		for _, single := range singles {
+			path := expandHome(single)
+
+			if info, err := os.Stat(path); err == nil && info.IsDir() {
+				add(path)
+			}
+		}
+
+		sort.Slice(projects, func(i, j int) bool {
+			return strings.ToLower(projects[i].name) < strings.ToLower(projects[j].name)
+		})
+
+		duplicates := map[string]int{}
+
+		for _, proj := range projects {
+			duplicates[proj.name]++
+		}
+
+		for i := range projects {
+			if duplicates[projects[i].name] > 1 {
+				projects[i].label = collapseHome(projects[i].path)
+			} else {
+				projects[i].label = projects[i].name
+			}
 		}
 
 		return projectsLoadedMsg(projects)
@@ -138,7 +178,7 @@ func (p Projects) Update(msg tea.Msg) (Mode, tea.Cmd) {
 
 			p.pending++
 
-			name, path := item.name, item.path
+			path := item.path
 
 			cmds = append(cmds, func() tea.Msg {
 				ctx, cancel := context.WithTimeout(context.Background(), projectFetchTimeout)
@@ -161,7 +201,7 @@ func (p Projects) Update(msg tea.Msg) (Mode, tea.Cmd) {
 				}
 
 				return projectStatusMsg{
-					name:        name,
+					path:        path,
 					status:      status,
 					fetchFailed: fetchFailed,
 				}
@@ -179,7 +219,7 @@ func (p Projects) Update(msg tea.Msg) (Mode, tea.Cmd) {
 		copy(items, p.list.items)
 
 		for i := range items {
-			if items[i].name == msg.name {
+			if items[i].path == msg.path {
 				items[i].statusKnown = true
 				items[i].branch = msg.status.branch
 				items[i].dirty = msg.status.dirty
@@ -206,22 +246,10 @@ func (p Projects) Update(msg tea.Msg) (Mode, tea.Cmd) {
 
 		return p, projectsTickCmd()
 
-	case editorDoneMsg:
-		if errors.Is(msg.err, errNoEditor) {
-			p.errorText = "no editor found — set editor in [projects] config or $EDITOR"
+	case editorMissingMsg:
+		p.errorText = "no editor found — set editor in [projects] config or $EDITOR"
 
-			return p, nil
-		}
-
-		if msg.err != nil {
-			p.errorText = "editor exited with an error"
-
-			return p, nil
-		}
-
-		return p, func() tea.Msg {
-			return RequestQuitMsg{}
-		}
+		return p, nil
 	}
 
 	return p, nil
@@ -264,22 +292,81 @@ func (p Projects) SetQuery(query string) Mode {
 	return p
 }
 
-func (p Projects) HasResults() bool { return p.list.hasResults() }
+func (Projects) Accent() lipgloss.Color { return projectsAccent }
 
-func (p Projects) MoveUp() Mode {
-	p.list.moveUp()
+func (p Projects) Status() string {
+	switch {
+	case !p.list.loaded:
+		return subtleStyle.Render("scanning projects…")
+	case len(p.list.items) == 0:
+		return subtleStyle.Render("no projects found")
+	case len(p.list.filtered) == 0:
+		return subtleStyle.Render("no matching projects")
+	case p.errorText != "":
+		return errorStyle.Render(p.errorText)
+	}
 
-	return p
+	return ""
 }
 
-func (p Projects) MoveDown() Mode {
-	p.list.moveDown()
+func (p Projects) Rows() []Row {
+	frame := projectSpinnerFrames[p.frame%len(projectSpinnerFrames)]
 
-	return p
+	return p.list.rows(func(item project) Row {
+		right := ""
+
+		switch {
+		case !item.git:
+
+		case !item.statusKnown:
+			right = subtleStyle.Render(frame)
+
+		default:
+			branch := item.branch
+
+			if branch == "" {
+				branch = "?"
+			}
+
+			branchStyle := cleanBranchStyle
+
+			if item.dirty {
+				branchStyle = dirtyBranchStyle
+			}
+
+			arrows := ""
+
+			if item.ahead > 0 {
+				arrows += "↑"
+			}
+
+			if item.behind > 0 {
+				arrows += "↓"
+			}
+
+			prefix := ""
+
+			if arrows != "" {
+				prefix = aheadBehindStyle.Render(arrows)
+			}
+
+			if item.fetchFailed {
+				prefix += "!"
+			}
+
+			right = branchStyle.Render(branch)
+
+			if prefix != "" {
+				right = prefix + " " + right
+			}
+		}
+
+		return Row{left: item.label, right: right}
+	})
 }
 
-func (p Projects) Activate() tea.Cmd {
-	item, ok := p.list.selected()
+func (p Projects) Activate(index int) tea.Cmd {
+	item, ok := p.list.at(index)
 
 	if !ok {
 		return nil
@@ -297,18 +384,28 @@ func (p Projects) Activate() tea.Cmd {
 
 	if editor == "" {
 		return func() tea.Msg {
-			return editorDoneMsg{err: errNoEditor}
+			return editorMissingMsg{}
 		}
 	}
 
-	words := editorArgv(editor)
+	terminal := p.cfg.Terminal
 
-	cmd := exec.Command(words[0], words[1:]...)
-	cmd.Dir = item.path
+	return func() tea.Msg {
+		argv := editorArgv(editor)
 
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		return editorDoneMsg{err: err}
-	})
+		if terminalEditors[filepath.Base(argv[0])] {
+			argv = terminalArgv(resolveTerminal(terminal), strings.Join(argv, " "))
+		}
+
+		spawnDetached(item.path, argv...)
+
+		return RequestQuitMsg{}
+	}
+}
+
+var terminalEditors = map[string]bool{
+	"hx": true, "helix": true, "vi": true, "vim": true, "nvim": true,
+	"nano": true, "micro": true, "kak": true, "kakoune": true,
 }
 
 var directoryCapableEditors = map[string]bool{
@@ -324,95 +421,4 @@ func editorArgv(editor string) []string {
 	}
 
 	return words
-}
-
-func (p Projects) View(width, rows int) string {
-	switch {
-	case !p.list.loaded:
-		return subtleStyle.Render("scanning projects…")
-	case len(p.list.items) == 0:
-		return subtleStyle.Render("no projects in " + p.cfg.Dir)
-	case len(p.list.filtered) == 0:
-		return subtleStyle.Render("no matching projects")
-	}
-
-	if p.errorText != "" {
-		return errorStyle.Render(p.errorText) + "\n" + p.list.view(width, rows-1, p.renderProject)
-	}
-
-	return p.list.view(width, rows, p.renderProject)
-}
-
-func (p Projects) renderProject(item project, selected bool, width int) string {
-	avail := max(width-2, 1)
-	name := truncate(item.name, avail)
-
-	status, statusWidth := p.projectStatus(item)
-
-	sub := ""
-
-	if status != "" {
-		if gap := avail - lipgloss.Width(name); gap > statusWidth+1 {
-			sub = strings.Repeat(" ", gap-statusWidth) + status
-		}
-	}
-
-	return renderRow(projectsAccent, selected, name, sub)
-}
-
-func (p Projects) projectStatus(item project) (string, int) {
-	if !item.git {
-		return "", 0
-	}
-
-	if !item.statusKnown {
-		frame := projectSpinnerFrames[p.frame%len(projectSpinnerFrames)]
-
-		return subtleStyle.Render(frame), lipgloss.Width(frame)
-	}
-
-	branch := item.branch
-
-	if branch == "" {
-		branch = "?"
-	}
-
-	branchStyle := cleanBranchStyle
-
-	if item.dirty {
-		branchStyle = dirtyBranchStyle
-	}
-
-	styled := branchStyle.Render(branch)
-	statusWidth := lipgloss.Width(branch)
-
-	arrows := ""
-
-	if item.ahead > 0 {
-		arrows += "↑"
-	}
-
-	if item.behind > 0 {
-		arrows += "↓"
-	}
-
-	prefix := ""
-	prefixWidth := 0
-
-	if arrows != "" {
-		prefix = aheadBehindStyle.Render(arrows)
-		prefixWidth = lipgloss.Width(arrows)
-	}
-
-	if item.fetchFailed {
-		prefix += "!"
-		prefixWidth++
-	}
-
-	if prefix != "" {
-		styled = prefix + " " + styled
-		statusWidth += prefixWidth + 1
-	}
-
-	return styled, statusWidth
 }

@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -81,25 +80,40 @@ func clipboardPreview(text string) string {
 	return strings.TrimSpace(text)
 }
 
-func (c Clipboard) HasResults() bool { return c.list.hasResults() }
+func (Clipboard) Accent() lipgloss.Color { return clipboardAccent }
 
-func (c Clipboard) MoveUp() Mode {
-	c.list.moveUp()
+func (c Clipboard) Status() string {
+	switch {
+	case !c.list.loaded:
+		return subtleStyle.Render("loading clipboard history…")
+	case len(c.list.items) == 0:
+		return subtleStyle.Render("clipboard history is empty — run `launtui -watch` to record copies")
+	case len(c.list.filtered) == 0:
+		return subtleStyle.Render("no matching clipboard entries")
+	}
 
-	return c
+	return ""
 }
 
-func (c Clipboard) MoveDown() Mode {
-	c.list.moveDown()
+func (c Clipboard) Rows() []Row {
+	now := time.Now().Unix()
 
-	return c
+	return c.list.rows(func(entry clipboardEntry) Row {
+		preview := clipboardPreview(entry.Text)
+
+		if strings.Contains(strings.TrimSpace(entry.Text), "\n") {
+			preview += " ⏎"
+		}
+
+		return Row{left: preview, right: subtleStyle.Render(relativeAge(now - entry.Time)), Deletable: true}
+	})
 }
 
-func (c Clipboard) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
-	selected, ok := c.list.selected()
+func (c Clipboard) DeleteRow(index int) (Mode, tea.Cmd) {
+	selected, ok := c.list.at(index)
 
 	if !ok {
-		return c, nil, false
+		return c, nil
 	}
 
 	entries := make([]clipboardEntry, 0, len(c.list.items))
@@ -112,10 +126,10 @@ func (c Clipboard) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
 
 	c.list.setItems(entries)
 
-	return c, saveClipboardHistoryCmd(entries), true
+	return c, saveClipboardHistoryCmd(entries)
 }
 
-func (c Clipboard) ClearHistory() (Mode, tea.Cmd) {
+func (c Clipboard) ClearRows() (Mode, tea.Cmd) {
 	c.list.setItems(nil)
 
 	return c, saveClipboardHistoryCmd(nil)
@@ -129,8 +143,8 @@ func saveClipboardHistoryCmd(entries []clipboardEntry) tea.Cmd {
 	}
 }
 
-func (c Clipboard) Activate() tea.Cmd {
-	entry, ok := c.list.selected()
+func (c Clipboard) Activate(index int) tea.Cmd {
+	entry, ok := c.list.at(index)
 
 	if !ok {
 		return nil
@@ -144,57 +158,6 @@ func (c Clipboard) Activate() tea.Cmd {
 
 		return RequestQuitMsg{}
 	}
-}
-
-func (c Clipboard) View(width, rows int) string {
-	switch {
-	case !c.list.loaded:
-		return subtleStyle.Render("loading clipboard history…")
-	case len(c.list.items) == 0:
-		return subtleStyle.Render("clipboard history is empty — run `launtui -watch` to record copies")
-	case len(c.list.filtered) == 0:
-		return subtleStyle.Render("no matching clipboard entries")
-	}
-
-	now := time.Now().Unix()
-
-	return c.list.view(width, rows, func(entry clipboardEntry, selected bool, width int) string {
-		avail := max(width-2, 1)
-
-		age := ""
-
-		switch elapsed := now - entry.Time; {
-		case elapsed < 60:
-			age = "now"
-		case elapsed < 3600:
-			age = strconv.FormatInt(elapsed/60, 10) + "m"
-		case elapsed < 86400:
-			age = strconv.FormatInt(elapsed/3600, 10) + "h"
-		default:
-			age = strconv.FormatInt(elapsed/86400, 10) + "d"
-		}
-
-		preview := clipboardPreview(entry.Text)
-
-		if lines := strings.Count(strings.TrimSpace(entry.Text), "\n"); lines > 0 {
-			preview += " ⏎"
-		}
-
-		if lipgloss.Width(preview) > avail {
-			preview = truncate(preview, avail)
-			age = ""
-		}
-
-		sub := ""
-
-		if age != "" {
-			if gap := avail - lipgloss.Width(preview); gap > lipgloss.Width(age)+1 {
-				sub = strings.Repeat(" ", gap-lipgloss.Width(age)) + subtleStyle.Render(age)
-			}
-		}
-
-		return renderRow(clipboardAccent, selected, preview, sub)
-	})
 }
 
 func WatchClipboard(cfg ClipboardConfig) error {

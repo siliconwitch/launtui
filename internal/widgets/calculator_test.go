@@ -187,13 +187,13 @@ func TestCalculatorHistorySelection(t *testing.T) {
 
 	calculator := mode.SetQuery("3+3").(Calculator)
 
-	activatedAnswer := func(c Calculator) string {
+	activatedAnswer := func(index int) string {
 		t.Helper()
 
-		cmd := c.Activate()
+		cmd := calculator.Activate(index)
 
 		if cmd == nil {
-			t.Fatal("activating a selection should produce a command")
+			t.Fatalf("activating index %d should produce a command", index)
 		}
 
 		cmd()
@@ -207,36 +207,24 @@ func TestCalculatorHistorySelection(t *testing.T) {
 		return entries[0].Text
 	}
 
-	if answer := activatedAnswer(calculator); answer != "6" {
+	if answer := activatedAnswer(0); answer != "6" {
 		t.Fatalf("live answer = %q, want 6", answer)
 	}
 
-	first := calculator.MoveDown().(Calculator)
-
-	if answer := activatedAnswer(first); answer != "2" {
+	if answer := activatedAnswer(1); answer != "2" {
 		t.Fatalf("first history answer = %q, want 2", answer)
 	}
 
-	second := first.MoveDown().(Calculator)
-
-	if answer := activatedAnswer(second); answer != "4" {
+	if answer := activatedAnswer(2); answer != "4" {
 		t.Fatalf("second history answer = %q, want 4", answer)
 	}
 
-	clamped := second.MoveDown().(Calculator)
-
-	if clamped.cursor != second.cursor {
-		t.Fatal("cursor should clamp at the last history entry")
-	}
-
-	reset := clamped.SetQuery("5+5").(Calculator)
-
-	if reset.cursor != 0 {
-		t.Fatal("cursor should reset when the query changes")
+	if cmd := calculator.Activate(3); cmd != nil {
+		t.Fatal("activating past the last row should do nothing")
 	}
 }
 
-func TestCalculatorDeleteSelectedHistory(t *testing.T) {
+func TestCalculatorDeleteHistory(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	mode, _ := NewCalculator(DefaultCalculatorConfig()).Update(calculatorHistoryMsg{
@@ -246,14 +234,14 @@ func TestCalculatorDeleteSelectedHistory(t *testing.T) {
 
 	calculator := mode.SetQuery("3+3").(Calculator)
 
-	if _, _, handled := calculator.DeleteSelectedHistory(); handled {
-		t.Fatal("delete on the live result should not be handled")
+	if _, cmd := calculator.DeleteRow(0); cmd != nil {
+		t.Fatal("deleting the live result should do nothing")
 	}
 
-	deleted, cmd, handled := calculator.MoveDown().(Calculator).DeleteSelectedHistory()
+	deleted, cmd := calculator.DeleteRow(1)
 
-	if !handled || cmd == nil {
-		t.Fatal("deleting a history entry should be handled and persisted")
+	if cmd == nil {
+		t.Fatal("deleting a history entry should be persisted")
 	}
 
 	remaining := deleted.(Calculator)
@@ -262,7 +250,7 @@ func TestCalculatorDeleteSelectedHistory(t *testing.T) {
 		t.Fatalf("history after delete = %+v", remaining.history)
 	}
 
-	cleared, clearCmd := remaining.ClearHistory()
+	cleared, clearCmd := remaining.ClearRows()
 
 	if len(cleared.(Calculator).history) != 0 || clearCmd == nil {
 		t.Fatalf("history after clear = %+v", cleared.(Calculator).history)

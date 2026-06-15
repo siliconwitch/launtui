@@ -36,7 +36,24 @@ func main() {
 	flag.Parse()
 
 	if *watch || *record {
-		runClipboardTool(*watch)
+		cfg := widgets.DefaultClipboardConfig()
+
+		if err := tui.LoadConfig(&cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "launtui: config:", err)
+		}
+
+		var err error
+
+		if *watch {
+			err = widgets.WatchClipboard(cfg)
+		} else {
+			err = widgets.RecordClipboardStdin(cfg)
+		}
+
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "launtui:", err)
+			os.Exit(1)
+		}
 
 		return
 	}
@@ -58,27 +75,6 @@ func main() {
 	}
 
 	_, err = tea.NewProgram(app, tea.WithAltScreen()).Run()
-
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "launtui:", err)
-		os.Exit(1)
-	}
-}
-
-func runClipboardTool(watch bool) {
-	cfg := widgets.DefaultClipboardConfig()
-
-	err := tui.Load(&cfg)
-
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "launtui: config:", err)
-	}
-
-	if watch {
-		err = widgets.WatchClipboard(cfg)
-	} else {
-		err = widgets.RecordClipboardStdin(cfg)
-	}
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "launtui:", err)

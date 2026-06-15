@@ -15,6 +15,7 @@ import (
 
 type RunConfig struct {
 	Enabled  bool     `toml:"enabled"`
+	Comment  bool     `toml:"comment"`
 	Exclude  []string `toml:"exclude"`
 	Terminal string   `toml:"terminal"`
 }
@@ -22,7 +23,7 @@ type RunConfig struct {
 func (RunConfig) SectionName() string { return "run" }
 
 func DefaultRunConfig() RunConfig {
-	return RunConfig{Enabled: true}
+	return RunConfig{Enabled: true, Comment: true}
 }
 
 var runAccent = lipgloss.Color("4")
@@ -154,22 +155,33 @@ func (r Run) SetQuery(query string) Mode {
 	return r
 }
 
-func (r Run) HasResults() bool { return r.list.hasResults() }
+func (Run) Accent() lipgloss.Color { return runAccent }
 
-func (r Run) MoveUp() Mode {
-	r.list.moveUp()
+func (r Run) Status() string {
+	switch {
+	case !r.list.loaded:
+		return subtleStyle.Render("scanning applications…")
+	case len(r.list.filtered) == 0:
+		return subtleStyle.Render("no matching applications")
+	}
 
-	return r
+	return ""
 }
 
-func (r Run) MoveDown() Mode {
-	r.list.moveDown()
+func (r Run) Rows() []Row {
+	return r.list.rows(func(app desktopApp) Row {
+		right := ""
 
-	return r
+		if r.cfg.Comment && app.Comment != "" {
+			right = subtleStyle.Render(app.Comment)
+		}
+
+		return Row{left: app.Name, right: right}
+	})
 }
 
-func (r Run) Activate() tea.Cmd {
-	app, ok := r.list.selected()
+func (r Run) Activate(index int) tea.Cmd {
+	app, ok := r.list.at(index)
 
 	if !ok {
 		return nil
@@ -183,81 +195,12 @@ func (r Run) Activate() tea.Cmd {
 		if cmdline == "" {
 			argv = nil
 		} else if app.Terminal {
-			terminal := r.cfg.Terminal
-
-			if terminal == "" {
-				terminal = os.Getenv("TERMINAL")
-			}
-
-			if terminal == "" {
-				for _, candidate := range []string{
-					"foot", "alacritty", "kitty", "ghostty", "wezterm",
-					"gnome-terminal", "konsole", "xfce4-terminal", "xterm",
-				} {
-					if _, err := exec.LookPath(candidate); err == nil {
-						terminal = candidate
-
-						break
-					}
-				}
-			}
-
-			argv = terminalArgv(terminal, cmdline)
+			argv = terminalArgv(resolveTerminal(r.cfg.Terminal), cmdline)
 		}
 
 		spawnDetached(app.WorkingDir, argv...)
 
 		return RequestQuitMsg{}
-	}
-}
-
-func (r Run) View(width, rows int) string {
-	switch {
-	case !r.list.loaded:
-		return subtleStyle.Render("scanning applications…")
-	case len(r.list.filtered) == 0:
-		return subtleStyle.Render("no matching applications")
-	}
-
-	return r.list.view(width, rows, func(app desktopApp, selected bool, width int) string {
-		avail := max(width-2, 1)
-
-		name, comment := app.Name, app.Comment
-
-		if lipgloss.Width(name) > avail {
-			name = truncate(name, avail)
-			comment = ""
-		}
-
-		sub := ""
-
-		if comment != "" {
-			if gap := avail - lipgloss.Width(name); gap > 3 {
-				comment = truncate(comment, gap-2)
-				sub = strings.Repeat(" ", gap-lipgloss.Width(comment)) + subtleStyle.Render(comment)
-			}
-		}
-
-		return renderRow(runAccent, selected, name, sub)
-	})
-}
-
-func terminalArgv(terminal, cmdline string) []string {
-	if terminal == "" {
-		return []string{"sh", "-c", cmdline}
-	}
-
-	switch filepath.Base(terminal) {
-	case "foot", "kitty":
-		return []string{terminal, "sh", "-c", cmdline}
-	case "wezterm":
-		return []string{terminal, "start", "--", "sh", "-c", cmdline}
-	case "gnome-terminal":
-		return []string{terminal, "--", "sh", "-c", cmdline}
-	case "xfce4-terminal":
-		return []string{terminal, "-x", "sh", "-c", cmdline}
-	default:
-		return []string{terminal, "-e", "sh", "-c", cmdline}
 	}
 }
 

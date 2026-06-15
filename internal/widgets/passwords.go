@@ -35,14 +35,25 @@ type passwordShownMsg struct {
 
 type passwordCopyBlockedMsg struct{}
 
+type passwordUsernameMsg struct {
+	entry    string
+	username string
+}
+
 type Passwords struct {
 	cfg       PasswordsConfig
 	list      list[string]
+	usernames map[string]string
+	selected  string
 	errorText string
 }
 
 func NewPasswords(cfg PasswordsConfig) Passwords {
-	return Passwords{cfg: cfg, list: newList(func(entry string) string { return entry })}
+	return Passwords{
+		cfg:       cfg,
+		list:      newList(func(entry string) string { return entry }),
+		usernames: map[string]string{},
+	}
 }
 
 func (Passwords) Name() string    { return "Pass" }
@@ -112,6 +123,11 @@ func (p Passwords) Update(msg tea.Msg) (Mode, tea.Cmd) {
 
 		return p, nil
 
+	case passwordUsernameMsg:
+		p.usernames[msg.entry] = msg.username
+
+		return p, nil
+
 	case passwordShownMsg:
 		if msg.err != nil {
 			p.errorText = "pass failed — wrong passphrase or cancelled"
@@ -164,22 +180,80 @@ func (p Passwords) SetQuery(query string) Mode {
 	return p
 }
 
-func (p Passwords) HasResults() bool { return p.list.hasResults() }
+func (Passwords) Accent() lipgloss.Color { return passwordsAccent }
 
-func (p Passwords) MoveUp() Mode {
-	p.list.moveUp()
+func (p Passwords) Status() string {
+	switch {
+	case !p.list.loaded:
+		return subtleStyle.Render("scanning password store…")
+	case len(p.list.items) == 0:
+		return subtleStyle.Render("no password store found")
+	case len(p.list.filtered) == 0:
+		return subtleStyle.Render("no matching passwords")
+	case p.errorText != "":
+		return errorStyle.Render(p.errorText)
+	}
 
-	return p
+	return ""
 }
 
-func (p Passwords) MoveDown() Mode {
-	p.list.moveDown()
+func (p Passwords) Rows() []Row {
+	return p.list.rows(func(entry string) Row {
+		right := ""
 
-	return p
+		if entry == p.selected {
+			if username := p.usernames[entry]; username != "" {
+				right = subtleStyle.Render(username)
+			}
+		}
+
+		return Row{left: entry, right: right}
+	})
 }
 
-func (p Passwords) Activate() tea.Cmd {
-	entry, ok := p.list.selected()
+func (p Passwords) Select(index int) (Mode, tea.Cmd) {
+	entry, ok := p.list.at(index)
+
+	if !ok {
+		p.selected = ""
+
+		return p, nil
+	}
+
+	p.selected = entry
+
+	if _, known := p.usernames[entry]; known {
+		return p, nil
+	}
+
+	store := p.cfg.Store
+
+	return p, func() tea.Msg {
+		cmd := exec.Command("pass", "show", entry)
+		cmd.Env = append(os.Environ(), "PASSWORD_STORE_GPG_OPTS=--pinentry-mode cancel")
+
+		if store != "" {
+			cmd.Env = append(cmd.Env, "PASSWORD_STORE_DIR="+expandHome(store))
+		}
+
+		output, err := cmd.Output()
+
+		if err != nil {
+			return nil
+		}
+
+		lines := strings.Split(string(output), "\n")
+
+		if len(lines) < 2 {
+			return nil
+		}
+
+		return passwordUsernameMsg{entry: entry, username: strings.TrimSpace(lines[1])}
+	}
+}
+
+func (p Passwords) Activate(index int) tea.Cmd {
+	entry, ok := p.list.at(index)
 
 	if !ok {
 		return nil
@@ -203,25 +277,4 @@ func (p Passwords) Activate() tea.Cmd {
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return passwordShownMsg{output: output.String(), err: err}
 	})
-}
-
-func (p Passwords) View(width, rows int) string {
-	switch {
-	case !p.list.loaded:
-		return subtleStyle.Render("scanning password store…")
-	case len(p.list.items) == 0:
-		return subtleStyle.Render("no password store found")
-	case len(p.list.filtered) == 0:
-		return subtleStyle.Render("no matching passwords")
-	}
-
-	if p.errorText != "" {
-		return errorStyle.Render(p.errorText) + "\n" + p.list.view(width, rows-1, p.renderEntry)
-	}
-
-	return p.list.view(width, rows, p.renderEntry)
-}
-
-func (p Passwords) renderEntry(entry string, selected bool, width int) string {
-	return renderRow(passwordsAccent, selected, truncate(entry, max(width-2, 1)), "")
 }

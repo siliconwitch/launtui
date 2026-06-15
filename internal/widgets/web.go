@@ -44,7 +44,6 @@ type Web struct {
 	query   string
 	actions []webAction
 	history []webVisit
-	cursor  int
 }
 
 func NewWeb(cfg WebConfig) Web {
@@ -87,7 +86,6 @@ func (w Web) Update(msg tea.Msg) (Mode, tea.Cmd) {
 
 func (w Web) SetQuery(query string) Mode {
 	w.query = strings.TrimSpace(query)
-	w.cursor = 0
 	w.actions = nil
 
 	if w.query == "" {
@@ -132,42 +130,49 @@ var (
 	webPortPattern = regexp.MustCompile(`^:\d+$`)
 )
 
-func (w Web) HasResults() bool {
-	return len(w.actions) > 0
-}
+func (Web) Accent() lipgloss.Color { return webAccent }
 
 func (w Web) StrongMatch() bool {
 	return len(w.actions) > 1
 }
 
-func (w Web) itemCount() int {
-	return len(w.actions) + len(w.history)
-}
-
-func (w Web) MoveUp() Mode {
-	if w.cursor > 0 {
-		w.cursor--
+func (w Web) Status() string {
+	if len(w.actions) == 0 && len(w.history) == 0 {
+		return subtleStyle.Render("type a web address or search query")
 	}
 
-	return w
+	return ""
 }
 
-func (w Web) MoveDown() Mode {
-	if w.cursor < w.itemCount()-1 {
-		w.cursor++
+func (w Web) Rows() []Row {
+	rows := make([]Row, 0, len(w.actions)+len(w.history))
+
+	for _, action := range w.actions {
+		rows = append(rows, Row{left: action.label})
 	}
 
-	return w
+	now := time.Now().Unix()
+
+	for _, visit := range w.history {
+		rows = append(rows, Row{
+			left:      visit.Label,
+			right:     subtleStyle.Render(relativeAge(now - visit.Time)),
+			style:     rowDim,
+			Deletable: true,
+		})
+	}
+
+	return rows
 }
 
-func (w Web) Activate() tea.Cmd {
+func (w Web) Activate(index int) tea.Cmd {
 	var visit webVisit
 
-	if w.cursor < len(w.actions) {
-		action := w.actions[w.cursor]
+	if index < len(w.actions) {
+		action := w.actions[index]
 		visit = webVisit{Label: action.label, URL: action.url, Time: time.Now().Unix()}
-	} else if index := w.cursor - len(w.actions); index < len(w.history) {
-		visit = w.history[index]
+	} else if history := index - len(w.actions); history >= 0 && history < len(w.history) {
+		visit = w.history[history]
 		visit.Time = time.Now().Unix()
 	} else {
 		return nil
@@ -198,25 +203,20 @@ func (w Web) Activate() tea.Cmd {
 	}
 }
 
-func (w Web) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
-	index := w.cursor - len(w.actions)
+func (w Web) DeleteRow(index int) (Mode, tea.Cmd) {
+	history := index - len(w.actions)
 
-	if index < 0 || index >= len(w.history) {
-		return w, nil, false
+	if history < 0 || history >= len(w.history) {
+		return w, nil
 	}
 
-	w.history = removeAt(w.history, index)
+	w.history = removeAt(w.history, history)
 
-	if w.cursor >= w.itemCount() {
-		w.cursor = max(w.itemCount()-1, 0)
-	}
-
-	return w, saveWebHistoryCmd(w.history), true
+	return w, saveWebHistoryCmd(w.history)
 }
 
-func (w Web) ClearHistory() (Mode, tea.Cmd) {
+func (w Web) ClearRows() (Mode, tea.Cmd) {
 	w.history = nil
-	w.cursor = min(w.cursor, max(w.itemCount()-1, 0))
 
 	return w, saveWebHistoryCmd(nil)
 }
@@ -233,29 +233,4 @@ func saveWebHistoryCmd(history []webVisit) tea.Cmd {
 
 		return nil
 	}
-}
-
-func (w Web) View(width, rows int) string {
-	if w.itemCount() == 0 {
-		return subtleStyle.Render("type a web address or search query")
-	}
-
-	var lines []string
-
-	for i, action := range w.actions {
-		lines = append(lines, renderRow(webAccent, i == w.cursor, truncate(action.label, max(width-2, 1)), ""))
-	}
-
-	historyRows := rows - len(lines)
-
-	if len(w.history) > 0 && historyRows > 0 {
-		selected := w.cursor - len(w.actions)
-		start, end := visibleRange(max(selected, 0), historyRows, len(w.history))
-
-		for i := start; i < end; i++ {
-			lines = append(lines, renderHistoryRow(webAccent, i == selected, truncate(w.history[i].Label, max(width-2, 1))))
-		}
-	}
-
-	return strings.Join(lines, "\n")
 }

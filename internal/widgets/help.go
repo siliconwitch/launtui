@@ -17,10 +17,7 @@ func DefaultHelpConfig() HelpConfig {
 }
 
 var (
-	helpBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("4")).
-			Padding(1, 3)
+	helpBoxStyle   = lipgloss.NewStyle().Padding(1, 3)
 	helpTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
 	helpKeyStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
 )

@@ -6,6 +6,33 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+func TestTerminalArgv(t *testing.T) {
+	cases := map[string][]string{
+		"foot":           {"foot", "sh", "-c", "btop"},
+		"kitty":          {"kitty", "sh", "-c", "btop"},
+		"alacritty":      {"alacritty", "-e", "sh", "-c", "btop"},
+		"wezterm":        {"wezterm", "start", "--", "sh", "-c", "btop"},
+		"gnome-terminal": {"gnome-terminal", "--", "sh", "-c", "btop"},
+		"":               {"sh", "-c", "btop"},
+	}
+
+	for terminal, want := range cases {
+		got := terminalArgv(terminal, "btop")
+
+		if len(got) != len(want) {
+			t.Errorf("terminalArgv(%q) = %v, want %v", terminal, got, want)
+			continue
+		}
+
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("terminalArgv(%q) = %v, want %v", terminal, got, want)
+				break
+			}
+		}
+	}
+}
+
 func TestRecordClipboardText(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
