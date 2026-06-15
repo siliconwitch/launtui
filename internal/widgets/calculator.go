@@ -364,7 +364,7 @@ func (c *Calculator) evaluate() {
 	c.valid = true
 }
 
-var conversionPattern = regexp.MustCompile(`^(.*?)\s*([a-zA-Z°][a-zA-Z0-9/²³°]*)\s+(?:to|in)\s+([a-zA-Z°][a-zA-Z0-9/²³°]*)$`)
+var conversionPattern = regexp.MustCompile(`^(.*?)\s*([a-zA-Z°µΩω][a-zA-Z0-9/²³°µΩω]*)\s+(?:to|in)\s+([a-zA-Z°µΩω][a-zA-Z0-9/²³°µΩω]*)$`)
 
 var currencyCodePattern = regexp.MustCompile(`^[A-Z]{3}$`)
 
@@ -417,8 +417,10 @@ type unitDefinition struct {
 	label    string
 }
 
-// TODO add more kinds of conversions. Common scientific and engineering conversions such as degrees to radians, speed of light, micro measurements (microns, mils, thou etc), electronic (nF to pF, ohm to millohm). Everything you can come up with to cover a wide range of professional use cases
 var unitDefinitions = map[string]unitDefinition{
+	"nm":  {"length", 1e-9, 0, "nm"},
+	"um":  {"length", 1e-6, 0, "µm"},
+	"mil": {"length", 2.54e-5, 0, "mil"},
 	"mm":  {"length", 0.001, 0, "mm"},
 	"cm":  {"length", 0.01, 0, "cm"},
 	"m":   {"length", 1, 0, "m"},
@@ -459,10 +461,11 @@ var unitDefinitions = map[string]unitDefinition{
 	"gib": {"data", 1 << 30, 0, "GiB"},
 	"tib": {"data", 1 << 40, 0, "TiB"},
 
-	"mps":  {"speed", 1, 0, "m/s"},
-	"kmh":  {"speed", 1.0 / 3.6, 0, "km/h"},
-	"mph":  {"speed", 0.44704, 0, "mph"},
-	"knot": {"speed", 1852.0 / 3600.0, 0, "kn"},
+	"mps":        {"speed", 1, 0, "m/s"},
+	"kmh":        {"speed", 1.0 / 3.6, 0, "km/h"},
+	"mph":        {"speed", 0.44704, 0, "mph"},
+	"knot":       {"speed", 1852.0 / 3600.0, 0, "kn"},
+	"lightspeed": {"speed", 299792458, 0, "c"},
 
 	"sqm":  {"area", 1, 0, "m²"},
 	"sqkm": {"area", 1e6, 0, "km²"},
@@ -478,10 +481,57 @@ var unitDefinitions = map[string]unitDefinition{
 	"day":  {"time", 86400, 0, "days"},
 	"week": {"time", 604800, 0, "weeks"},
 	"year": {"time", 31557600, 0, "years"},
+
+	"rad":    {"angle", 1, 0, "rad"},
+	"deg":    {"angle", math.Pi / 180, 0, "°"},
+	"grad":   {"angle", math.Pi / 200, 0, "grad"},
+	"arcmin": {"angle", math.Pi / 180 / 60, 0, "′"},
+	"arcsec": {"angle", math.Pi / 180 / 3600, 0, "″"},
+	"turn":   {"angle", 2 * math.Pi, 0, "turn"},
+
+	"hz":  {"frequency", 1, 0, "Hz"},
+	"khz": {"frequency", 1e3, 0, "kHz"},
+	"mhz": {"frequency", 1e6, 0, "MHz"},
+	"ghz": {"frequency", 1e9, 0, "GHz"},
+	"thz": {"frequency", 1e12, 0, "THz"},
+
+	"milliohm": {"resistance", 1e-3, 0, "mΩ"},
+	"ohm":      {"resistance", 1, 0, "Ω"},
+	"kohm":     {"resistance", 1e3, 0, "kΩ"},
+	"megohm":   {"resistance", 1e6, 0, "MΩ"},
+
+	"pf":    {"capacitance", 1e-12, 0, "pF"},
+	"nf":    {"capacitance", 1e-9, 0, "nF"},
+	"uf":    {"capacitance", 1e-6, 0, "µF"},
+	"mf":    {"capacitance", 1e-3, 0, "mF"},
+	"farad": {"capacitance", 1, 0, "F"},
+
+	"nh":    {"inductance", 1e-9, 0, "nH"},
+	"uh":    {"inductance", 1e-6, 0, "µH"},
+	"mh":    {"inductance", 1e-3, 0, "mH"},
+	"henry": {"inductance", 1, 0, "H"},
+
+	"uv": {"voltage", 1e-6, 0, "µV"},
+	"mv": {"voltage", 1e-3, 0, "mV"},
+	"v":  {"voltage", 1, 0, "V"},
+	"kv": {"voltage", 1e3, 0, "kV"},
+
+	"ua": {"current", 1e-6, 0, "µA"},
+	"ma": {"current", 1e-3, 0, "mA"},
+	"a":  {"current", 1, 0, "A"},
+	"ka": {"current", 1e3, 0, "kA"},
+
+	"mw":       {"power", 1e-3, 0, "mW"},
+	"w":        {"power", 1, 0, "W"},
+	"kw":       {"power", 1e3, 0, "kW"},
+	"megawatt": {"power", 1e6, 0, "MW"},
+	"gw":       {"power", 1e9, 0, "GW"},
 }
 
-// TODO add more aliases as needed for the above
 var unitAliases = map[string]string{
+	"nanometre": "nm", "nanometer": "nm",
+	"micron": "um", "micrometre": "um", "micrometer": "um", "µm": "um",
+	"thou":       "mil",
 	"millimetre": "mm", "millimeter": "mm",
 	"centimetre": "cm", "centimeter": "cm",
 	"metre": "m", "meter": "m",
@@ -518,8 +568,43 @@ var unitAliases = map[string]string{
 	"sec":     "s", "second": "s",
 	"minute": "min",
 	"hr":     "h", "hour": "h",
-	"wk": "week",
-	"yr": "year",
+	"wk":      "week",
+	"yr":      "year",
+	"radian":  "rad",
+	"degree":  "deg",
+	"gradian": "grad", "gon": "grad",
+	"arcminute": "arcmin",
+	"arcsecond": "arcsec",
+	"rev":       "turn", "revolution": "turn",
+	"hertz":     "hz",
+	"kilohertz": "khz",
+	"megahertz": "mhz",
+	"gigahertz": "ghz",
+	"terahertz": "thz",
+	"ω":         "ohm",
+	"mω":        "milliohm",
+	"kiloohm":   "kohm", "kilohm": "kohm", "kω": "kohm",
+	"megaohm":    "megohm",
+	"millifarad": "mf",
+	"microfarad": "uf", "µf": "uf",
+	"nanofarad":  "nf",
+	"picofarad":  "pf",
+	"henries":    "henry",
+	"millihenry": "mh",
+	"microhenry": "uh", "µh": "uh",
+	"nanohenry": "nh",
+	"volt":      "v",
+	"millivolt": "mv",
+	"microvolt": "uv", "µv": "uv",
+	"kilovolt": "kv",
+	"amp":      "a", "ampere": "a",
+	"milliamp": "ma", "milliampere": "ma",
+	"microamp": "ua", "µa": "ua",
+	"kiloamp":   "ka",
+	"watt":      "w",
+	"milliwatt": "mw",
+	"kilowatt":  "kw",
+	"gigawatt":  "gw",
 }
 
 func resolveUnit(text string) (unitDefinition, bool) {

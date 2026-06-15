@@ -5,8 +5,10 @@ readout at a glance. One search box, six modes:
 
 - **Run** — fuzzy-search your desktop applications and launch them. Terminal
   apps (`Terminal=true` entries like btop) open in your terminal emulator.
-- **Calc** — evaluate arithmetic (`(2+3)*4`, `2^10`), convert units
-  (`5 miles to km`, `100 f to c`, `1 gib to mb`) and currencies
+- **Calc** — evaluate arithmetic (`(2+3)*4`, `2^10`), convert units across
+  length, mass, volume, temperature, data, speed, area, time, angle, frequency,
+  resistance, capacitance, inductance, voltage, current, and power
+  (`5 miles to km`, `100 f to c`, `180 deg to rad`, `1 nf to pf`) and currencies
   (`10 gbp to usd`, live ECB rates cached for a day). Enter copies the result.
   Past calculations are kept; scroll down to one and press enter to copy its
   answer again.

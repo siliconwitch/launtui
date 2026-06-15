@@ -85,6 +85,19 @@ func TestUnitConversions(t *testing.T) {
 		"5 ms to s":       "0.005 s",
 		"3 kms to m":      "3000 m",
 		"2 hours to mins": "120 min",
+		"180 deg to rad":  "3.141593 rad",
+		"1 turn to deg":   "360 °",
+		"1 micron to nm":  "1000 nm",
+		"1 mil to um":     "25.4 µm",
+		"1 ghz to mhz":    "1000 MHz",
+		"1 nf to pf":      "1000 pF",
+		"1 µf to nf":      "1000 nF",
+		"5 kohm to ohm":   "5000 Ω",
+		"1 megohm to ohm": "1000000 Ω",
+		"1 henry to mh":   "1000 mH",
+		"3.3 v to mv":     "3300 mV",
+		"2 a to ma":       "2000 mA",
+		"1 kw to w":       "1000 W",
 	}
 
 	for input, want := range cases {
@@ -100,7 +113,7 @@ func TestUnitConversions(t *testing.T) {
 		}
 	}
 
-	invalid := []string{"5 km to kg", "5 foo to bar", "gmail to usd"}
+	invalid := []string{"5 km to kg", "5 foo to bar", "gmail to usd", "5 ohm to farad", "1 deg to hz"}
 
 	for _, input := range invalid {
 		if updated := calculator.SetQuery(input).(Calculator); updated.valid {
