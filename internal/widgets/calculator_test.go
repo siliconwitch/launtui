@@ -139,30 +139,47 @@ func TestCurrencyConversion(t *testing.T) {
 }
 
 func TestCompletedCalculation(t *testing.T) {
-	calculator := NewCalculator(DefaultCalculatorConfig())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	plain := calculator.SetQuery("42").(Calculator)
+	plain := NewCalculator(DefaultCalculatorConfig()).SetQuery("42").(Calculator)
 
-	if _, ok := plain.completedCalculation(); ok {
+	if _, cmd := plain.Update(AppClosingMsg{}); cmd != nil {
 		t.Error("plain numbers should not be recorded")
 	}
 
-	sum := calculator.SetQuery("4+5").(Calculator)
+	sum := NewCalculator(DefaultCalculatorConfig()).SetQuery("4+5").(Calculator)
 
-	entry, ok := sum.completedCalculation()
+	_, cmd := sum.Update(AppClosingMsg{})
 
-	if !ok || entry.Expression != "4+5" || entry.Answer != "9" {
-		t.Fatalf("completedCalculation = %+v (ok=%v)", entry, ok)
+	if cmd == nil {
+		t.Fatal("a fresh expression should be recorded on close")
 	}
 
-	sum.history = []calculation{{Expression: "4+5", Answer: "9"}}
+	cmd()
 
-	if _, ok := sum.completedCalculation(); ok {
+	path, err := launtuiDataPath(calculatorHistoryFile)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	history, _ := loadJSON[[]calculation](path)
+
+	if len(history) != 1 || history[0].Expression != "4+5" || history[0].Answer != "9" {
+		t.Fatalf("recorded history = %+v", history)
+	}
+
+	duplicate := sum
+	duplicate.history = []calculation{{Expression: "4+5", Answer: "9"}}
+
+	if _, cmd := duplicate.Update(AppClosingMsg{}); cmd != nil {
 		t.Error("duplicate of newest history entry should not be recorded")
 	}
 }
 
 func TestCalculatorHistorySelection(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
 	mode, _ := NewCalculator(DefaultCalculatorConfig()).Update(calculatorHistoryMsg{
 		{Expression: "1+1", Answer: "2"},
 		{Expression: "2+2", Answer: "4"},
@@ -170,20 +187,40 @@ func TestCalculatorHistorySelection(t *testing.T) {
 
 	calculator := mode.SetQuery("3+3").(Calculator)
 
-	if answer, ok := calculator.selectedAnswer(); !ok || answer != "6" {
-		t.Fatalf("live answer = %q (ok=%v), want 6", answer, ok)
+	activatedAnswer := func(c Calculator) string {
+		t.Helper()
+
+		cmd := c.Activate()
+
+		if cmd == nil {
+			t.Fatal("activating a selection should produce a command")
+		}
+
+		cmd()
+
+		entries := loadClipboardHistory()
+
+		if len(entries) == 0 {
+			t.Fatal("activation should copy the selected answer into clipboard history")
+		}
+
+		return entries[0].Text
+	}
+
+	if answer := activatedAnswer(calculator); answer != "6" {
+		t.Fatalf("live answer = %q, want 6", answer)
 	}
 
 	first := calculator.MoveDown().(Calculator)
 
-	if answer, ok := first.selectedAnswer(); !ok || answer != "2" {
-		t.Fatalf("first history answer = %q (ok=%v), want 2", answer, ok)
+	if answer := activatedAnswer(first); answer != "2" {
+		t.Fatalf("first history answer = %q, want 2", answer)
 	}
 
 	second := first.MoveDown().(Calculator)
 
-	if answer, ok := second.selectedAnswer(); !ok || answer != "4" {
-		t.Fatalf("second history answer = %q (ok=%v), want 4", answer, ok)
+	if answer := activatedAnswer(second); answer != "4" {
+		t.Fatalf("second history answer = %q, want 4", answer)
 	}
 
 	clamped := second.MoveDown().(Calculator)

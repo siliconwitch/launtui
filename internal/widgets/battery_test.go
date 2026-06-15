@@ -3,6 +3,7 @@ package widgets
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +19,10 @@ func writeBattery(t *testing.T, files map[string]string) string {
 	}
 
 	return dir
+}
+
+func batteryView(reading batteryReading) string {
+	return Battery{cfg: BatteryConfig{Enabled: true}, reading: reading}.View()
 }
 
 func TestReadBatteryEnergyDischarging(t *testing.T) {
@@ -39,12 +44,14 @@ func TestReadBatteryEnergyDischarging(t *testing.T) {
 		t.Fatalf("hours = %v, want 2.0", reading.hours)
 	}
 
-	if got := batteryDuration(reading.hours); got != "2h" {
-		t.Fatalf("duration = %q, want %q", got, "2h")
+	view := batteryView(reading)
+
+	if !strings.Contains(view, "2h") {
+		t.Fatalf("view = %q, want a 2h estimate", view)
 	}
 
-	if got := batteryIcon(reading); got != "" {
-		t.Fatalf("icon = %q, want half-battery", got)
+	if !strings.Contains(view, "") {
+		t.Fatalf("view = %q, want the half-battery icon", view)
 	}
 }
 
@@ -63,12 +70,14 @@ func TestReadBatteryChargeCharging(t *testing.T) {
 		t.Fatalf("hours = %v, want 3.0", reading.hours)
 	}
 
-	if got := batteryDuration(reading.hours); got != "3h" {
-		t.Fatalf("duration = %q, want %q", got, "3h")
+	view := batteryView(reading)
+
+	if !strings.Contains(view, "3h") {
+		t.Fatalf("view = %q, want a 3h estimate", view)
 	}
 
-	if got := batteryIcon(reading); got != "" {
-		t.Fatalf("icon = %q, want bolt", got)
+	if !strings.Contains(view, "") {
+		t.Fatalf("view = %q, want the charging bolt icon", view)
 	}
 }
 
@@ -86,8 +95,8 @@ func TestReadBatteryNoEstimate(t *testing.T) {
 		t.Fatalf("reading = %+v", reading)
 	}
 
-	if got := batteryIcon(reading); got != "" {
-		t.Fatalf("icon = %q, want plug", got)
+	if !strings.Contains(batteryView(reading), "") {
+		t.Fatalf("view = %q, want the plug icon", batteryView(reading))
 	}
 }
 
@@ -112,8 +121,10 @@ func TestBatteryDuration(t *testing.T) {
 	}
 
 	for hours, want := range cases {
-		if got := batteryDuration(hours); got != want {
-			t.Errorf("batteryDuration(%v) = %q, want %q", hours, got, want)
+		view := batteryView(batteryReading{present: true, status: "Discharging", percent: 50, hours: hours})
+
+		if !strings.Contains(view, want) {
+			t.Errorf("view for %vh = %q, want it to contain %q", hours, view, want)
 		}
 	}
 }

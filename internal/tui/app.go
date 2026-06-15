@@ -82,7 +82,27 @@ func New(startHotkey string) (App, error) {
 		}
 	}
 
-	app.help = widgets.NewHelp(helpCfg).WithBindings(app.helpBindings())
+	bindings := []widgets.HelpBinding{
+		{Keys: "type", Desc: "filter the list"},
+		{Keys: "↑ / ↓", Desc: "move selection"},
+		{Keys: "enter", Desc: "activate selection"},
+		{Keys: "tab / shift+tab", Desc: "next / previous mode"},
+		{Keys: "del", Desc: "delete the selected history entry"},
+		{Keys: "ctrl+del", Desc: "clear the mode's history"},
+	}
+
+	for _, mode := range app.modes {
+		if mode.Enabled() {
+			bindings = append(bindings, widgets.HelpBinding{Keys: mode.Hotkey(), Desc: mode.Name() + " mode"})
+		}
+	}
+
+	bindings = append(bindings,
+		widgets.HelpBinding{Keys: "ctrl+h", Desc: "toggle this help"},
+		widgets.HelpBinding{Keys: "esc", Desc: "quit"},
+	)
+
+	app.help = widgets.NewHelp(helpCfg).WithBindings(bindings)
 
 	return app, err
 }
@@ -101,7 +121,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = msg.Width, msg.Height
-		a.input.Width = a.inputWidth()
+
+		contentWidth := max(1, a.width-2)
+		a.input.Width = max(1, contentWidth/2-lipgloss.Width(a.input.Prompt)-1)
 
 		return a, nil
 
@@ -114,7 +136,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleKey(msg)
 	}
 
-	if isCtrlDelete(msg) {
+	if sequence, ok := msg.(fmt.Stringer); ok && ctrlDeleteSequences[sequence.String()] {
 		return a.clearCurrentHistory()
 	}
 
@@ -255,12 +277,6 @@ func unknownCSIString(parameters string) string {
 	return fmt.Sprintf("?CSI%+v?", []byte(parameters))
 }
 
-func isCtrlDelete(msg tea.Msg) bool {
-	sequence, ok := msg.(fmt.Stringer)
-
-	return ok && ctrlDeleteSequences[sequence.String()]
-}
-
 func (a App) clearCurrentHistory() (tea.Model, tea.Cmd) {
 	if a.help.Visible() {
 		return a, nil
@@ -342,28 +358,6 @@ func (a App) defaultMode() int {
 	return 0
 }
 
-func (a App) helpBindings() []widgets.HelpBinding {
-	bindings := []widgets.HelpBinding{
-		{Keys: "type", Desc: "filter the list"},
-		{Keys: "↑ / ↓", Desc: "move selection"},
-		{Keys: "enter", Desc: "activate selection"},
-		{Keys: "tab / shift+tab", Desc: "next / previous mode"},
-		{Keys: "del", Desc: "delete the selected history entry"},
-		{Keys: "ctrl+del", Desc: "clear the mode's history"},
-	}
-
-	for _, mode := range a.modes {
-		if mode.Enabled() {
-			bindings = append(bindings, widgets.HelpBinding{Keys: mode.Hotkey(), Desc: mode.Name() + " mode"})
-		}
-	}
-
-	return append(bindings,
-		widgets.HelpBinding{Keys: "ctrl+h", Desc: "toggle this help"},
-		widgets.HelpBinding{Keys: "esc", Desc: "quit"},
-	)
-}
-
 func (a App) View() string {
 	if a.width == 0 || a.height == 0 {
 		return ""
@@ -377,12 +371,40 @@ func (a App) View() string {
 		return lipgloss.Place(tuiWidth, tuiHeight, lipgloss.Center, lipgloss.Center, a.help.View())
 	}
 
-	left := lipgloss.JoinVertical(lipgloss.Left,
-		a.modeBar(),
-		a.input.View(),
-	)
+	var modes []string
 
-	header := spread(contentWidth, left, stackRight(a.clock.View(), a.battery.View()))
+	for i, mode := range a.modes {
+		if !mode.Enabled() {
+			continue
+		}
+
+		if i == a.current {
+			modes = append(modes, modeActiveStyle.Render(mode.Name()))
+		} else {
+			modes = append(modes, modeInactiveStyle.Render(mode.Name()))
+		}
+	}
+
+	bar := strings.Join(modes, "  ")
+
+	if a.auto {
+		bar += modeInactiveStyle.Render("  · auto")
+	}
+
+	left := lipgloss.JoinVertical(lipgloss.Left, bar, a.input.View())
+
+	var status []string
+
+	for _, part := range []string{a.clock.View(), a.battery.View()} {
+		if part != "" {
+			status = append(status, part)
+		}
+	}
+
+	right := lipgloss.JoinVertical(lipgloss.Right, status...)
+
+	gap := max(1, contentWidth-lipgloss.Width(left)-lipgloss.Width(right))
+	header := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
 
 	divider := dividerStyle.Render(strings.Repeat("─", contentWidth))
 
@@ -395,53 +417,6 @@ func (a App) View() string {
 	)
 
 	return appStyle.Width(tuiWidth).Height(tuiHeight).Render(body)
-}
-
-func (a App) inputWidth() int {
-	contentWidth := max(1, a.width-2)
-
-	return max(1, contentWidth/2-lipgloss.Width(a.input.Prompt)-1)
-}
-
-func (a App) modeBar() string {
-	var parts []string
-
-	for i, mode := range a.modes {
-		if !mode.Enabled() {
-			continue
-		}
-
-		if i == a.current {
-			parts = append(parts, modeActiveStyle.Render(mode.Name()))
-		} else {
-			parts = append(parts, modeInactiveStyle.Render(mode.Name()))
-		}
-	}
-
-	bar := strings.Join(parts, "  ")
-
-	if a.auto {
-		bar += modeInactiveStyle.Render("  · auto")
-	}
-
-	return bar
-}
-
-func spread(width int, left, right string) string {
-	gap := max(1, width-lipgloss.Width(left)-lipgloss.Width(right))
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
-}
-
-func stackRight(parts ...string) string {
-	var visible []string
-
-	for _, part := range parts {
-		if part != "" {
-			visible = append(visible, part)
-		}
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Right, visible...)
 }
 
 type Section interface {

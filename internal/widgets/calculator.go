@@ -76,7 +76,50 @@ func (c Calculator) Init() tea.Cmd {
 		return nil
 	}
 
-	return tea.Batch(loadCalculatorHistoryCmd(), loadCurrencyRatesCmd())
+	return tea.Batch(
+		func() tea.Msg {
+			path, err := launtuiDataPath(calculatorHistoryFile)
+
+			if err != nil {
+				return calculatorHistoryMsg(nil)
+			}
+
+			history, _ := loadJSON[[]calculation](path)
+
+			return calculatorHistoryMsg(history)
+		},
+		func() tea.Msg {
+			cachePath, pathErr := launtuiCachePath(currencyCacheFile)
+
+			var cache currencyCache
+			cached := false
+
+			if pathErr == nil {
+				cache, cached = loadJSON[currencyCache](cachePath)
+				cached = cached && len(cache.Rates) > 0
+			}
+
+			if cached && time.Now().Unix()-cache.Fetched < int64(currencyCacheMaxAge.Seconds()) {
+				return currencyRatesMsg{rates: cache.Rates}
+			}
+
+			rates, err := fetchCurrencyRates()
+
+			if err != nil {
+				if cached {
+					return currencyRatesMsg{rates: cache.Rates}
+				}
+
+				return currencyRatesMsg{failed: true}
+			}
+
+			if pathErr == nil {
+				_ = saveJSON(cachePath, currencyCache{Fetched: time.Now().Unix(), Rates: rates})
+			}
+
+			return currencyRatesMsg{rates: rates}
+		},
+	)
 }
 
 func (c Calculator) Update(msg tea.Msg) (Mode, tea.Cmd) {
@@ -100,7 +143,42 @@ func (c Calculator) Update(msg tea.Msg) (Mode, tea.Cmd) {
 		return c, nil
 
 	case AppClosingMsg:
-		return c, c.recordCalculationCmd()
+		if !c.valid {
+			return c, nil
+		}
+
+		if _, err := strconv.ParseFloat(c.query, 64); err == nil {
+			return c, nil
+		}
+
+		if len(c.history) > 0 && c.history[0].Expression == c.query && c.history[0].Answer == c.answer {
+			return c, nil
+		}
+
+		entry := calculation{Expression: c.query, Answer: c.answer, Time: time.Now().Unix()}
+		limit := c.cfg.MaxHistory
+
+		return c, func() tea.Msg {
+			if limit <= 0 {
+				limit = 50
+			}
+
+			path, err := launtuiDataPath(calculatorHistoryFile)
+
+			if err != nil {
+				return nil
+			}
+
+			previous, _ := loadJSON[[]calculation](path)
+
+			if len(previous) > 0 && previous[0].Expression == entry.Expression && previous[0].Answer == entry.Answer {
+				return nil
+			}
+
+			_ = saveJSON(path, prependCapped(previous, entry, limit, nil))
+
+			return nil
+		}
 	}
 
 	return c, nil
@@ -145,9 +223,13 @@ func (c Calculator) MoveDown() Mode {
 }
 
 func (c Calculator) Activate() tea.Cmd {
-	answer, ok := c.selectedAnswer()
+	answer := ""
 
-	if !ok {
+	if c.valid && c.cursor == 0 {
+		answer = c.answer
+	} else if index := c.cursor - c.liveCount(); index >= 0 && index < len(c.history) {
+		answer = c.history[index].Answer
+	} else {
 		return nil
 	}
 
@@ -196,26 +278,18 @@ func saveCalculatorHistoryCmd(history []calculation) tea.Cmd {
 	}
 }
 
-func (c Calculator) selectedAnswer() (string, bool) {
-	if c.valid && c.cursor == 0 {
-		return c.answer, true
-	}
-
-	index := c.cursor - c.liveCount()
-
-	if index >= 0 && index < len(c.history) {
-		return c.history[index].Answer, true
-	}
-
-	return "", false
-}
-
 func (c Calculator) View(width, rows int) string {
 	var lines []string
 
 	switch {
 	case c.valid:
-		lines = append(lines, c.renderLive(width))
+		line := truncate("= "+c.answer, max(width-2, 1))
+
+		if c.cursor == 0 {
+			lines = append(lines, renderRow(calculatorAccent, true, line, ""))
+		} else {
+			lines = append(lines, "  "+calculatorResultStyle.Render(line))
+		}
 	case c.note != "":
 		lines = append(lines, subtleStyle.Render(c.note))
 	case c.query != "":
@@ -231,25 +305,12 @@ func (c Calculator) View(width, rows int) string {
 		start, end := visibleRange(max(selected, 0), historyRows, len(c.history))
 
 		for i := start; i < end; i++ {
-			lines = append(lines, c.renderHistory(c.history[i], i == selected, width))
+			line := truncate(c.history[i].Expression+" = "+c.history[i].Answer, max(width-2, 1))
+			lines = append(lines, renderHistoryRow(calculatorAccent, i == selected, line))
 		}
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-func (c Calculator) renderLive(width int) string {
-	line := truncate("= "+c.answer, max(width-2, 1))
-
-	if c.cursor == 0 {
-		return renderRow(calculatorAccent, true, line, "")
-	}
-
-	return "  " + calculatorResultStyle.Render(line)
-}
-
-func (c Calculator) renderHistory(entry calculation, selected bool, width int) string {
-	return renderHistoryRow(calculatorAccent, selected, truncate(entry.Expression+" = "+entry.Answer, max(width-2, 1)))
 }
 
 func (c *Calculator) evaluate() {
@@ -266,12 +327,6 @@ func (c *Calculator) evaluate() {
 		return
 	}
 
-	c.evaluateConversion()
-}
-
-var conversionPattern = regexp.MustCompile(`^(.*?)\s*([a-zA-Z°][a-zA-Z0-9/²³°]*)\s+(?:to|in)\s+([a-zA-Z°][a-zA-Z0-9/²³°]*)$`)
-
-func (c *Calculator) evaluateConversion() {
 	match := conversionPattern.FindStringSubmatch(c.query)
 
 	if match == nil {
@@ -292,18 +347,18 @@ func (c *Calculator) evaluateConversion() {
 		amount = value
 	}
 
-	if answer, ok := convertUnits(amount, fromText, toText, c.cfg.Precision); ok {
-		c.answer, c.valid = answer, true
+	if from, fromOk := resolveUnit(fromText); fromOk {
+		if to, toOk := resolveUnit(toText); toOk && from.category == to.category {
+			base := amount*from.factor + from.offset
+			value := (base - to.offset) / to.factor
 
-		return
+			c.answer = formatNumber(value, c.cfg.Precision) + " " + to.label
+			c.valid = true
+
+			return
+		}
 	}
 
-	c.evaluateCurrency(amount, fromText, toText)
-}
-
-var currencyCodePattern = regexp.MustCompile(`^[A-Z]{3}$`)
-
-func (c *Calculator) evaluateCurrency(amount float64, fromText, toText string) {
 	from, to := strings.ToUpper(fromText), strings.ToUpper(toText)
 
 	if !currencyCodePattern.MatchString(from) || !currencyCodePattern.MatchString(to) {
@@ -340,121 +395,13 @@ func (c *Calculator) evaluateCurrency(amount float64, fromText, toText string) {
 	c.valid = true
 }
 
-func (c Calculator) recordCalculationCmd() tea.Cmd {
-	entry, ok := c.completedCalculation()
+var conversionPattern = regexp.MustCompile(`^(.*?)\s*([a-zA-Z°][a-zA-Z0-9/²³°]*)\s+(?:to|in)\s+([a-zA-Z°][a-zA-Z0-9/²³°]*)$`)
 
-	if !ok {
-		return nil
-	}
-
-	limit := c.cfg.MaxHistory
-
-	return func() tea.Msg {
-		recordCalculation(entry, limit)
-
-		return nil
-	}
-}
-
-func (c Calculator) completedCalculation() (calculation, bool) {
-	if !c.valid {
-		return calculation{}, false
-	}
-
-	if _, err := strconv.ParseFloat(c.query, 64); err == nil {
-		return calculation{}, false
-	}
-
-	if len(c.history) > 0 && c.history[0].Expression == c.query && c.history[0].Answer == c.answer {
-		return calculation{}, false
-	}
-
-	return calculation{Expression: c.query, Answer: c.answer, Time: time.Now().Unix()}, true
-}
-
-func recordCalculation(entry calculation, limit int) {
-	if limit <= 0 {
-		limit = 50
-	}
-
-	path, err := launtuiDataPath(calculatorHistoryFile)
-
-	if err != nil {
-		return
-	}
-
-	previous, _ := loadJSON[[]calculation](path)
-
-	if len(previous) > 0 && previous[0].Expression == entry.Expression && previous[0].Answer == entry.Answer {
-		return
-	}
-
-	_ = saveJSON(path, prependCapped(previous, entry, limit, nil))
-}
-
-func loadCalculatorHistoryCmd() tea.Cmd {
-	return func() tea.Msg {
-		path, err := launtuiDataPath(calculatorHistoryFile)
-
-		if err != nil {
-			return calculatorHistoryMsg(nil)
-		}
-
-		history, _ := loadJSON[[]calculation](path)
-
-		return calculatorHistoryMsg(history)
-	}
-}
+var currencyCodePattern = regexp.MustCompile(`^[A-Z]{3}$`)
 
 type currencyCache struct {
 	Fetched int64              `json:"fetched"`
 	Rates   map[string]float64 `json:"rates"`
-}
-
-func loadCurrencyRatesCmd() tea.Cmd {
-	return func() tea.Msg {
-		cache, cached := readCurrencyCache()
-
-		if cached && time.Now().Unix()-cache.Fetched < int64(currencyCacheMaxAge.Seconds()) {
-			return currencyRatesMsg{rates: cache.Rates}
-		}
-
-		rates, err := fetchCurrencyRates()
-
-		if err != nil {
-			if cached {
-				return currencyRatesMsg{rates: cache.Rates}
-			}
-
-			return currencyRatesMsg{failed: true}
-		}
-
-		writeCurrencyCache(rates)
-
-		return currencyRatesMsg{rates: rates}
-	}
-}
-
-func readCurrencyCache() (currencyCache, bool) {
-	path, err := launtuiCachePath(currencyCacheFile)
-
-	if err != nil {
-		return currencyCache{}, false
-	}
-
-	cache, ok := loadJSON[currencyCache](path)
-
-	return cache, ok && len(cache.Rates) > 0
-}
-
-func writeCurrencyCache(rates map[string]float64) {
-	path, err := launtuiCachePath(currencyCacheFile)
-
-	if err != nil {
-		return
-	}
-
-	_ = saveJSON(path, currencyCache{Fetched: time.Now().Unix(), Rates: rates})
 }
 
 func fetchCurrencyRates() (map[string]float64, error) {
@@ -624,20 +571,6 @@ func resolveUnit(text string) (unitDefinition, bool) {
 	definition, ok := unitDefinitions[singular]
 
 	return definition, ok
-}
-
-func convertUnits(amount float64, fromText, toText string, precision int) (string, bool) {
-	from, fromOk := resolveUnit(fromText)
-	to, toOk := resolveUnit(toText)
-
-	if !fromOk || !toOk || from.category != to.category {
-		return "", false
-	}
-
-	base := amount*from.factor + from.offset
-	value := (base - to.offset) / to.factor
-
-	return formatNumber(value, precision) + " " + to.label, true
 }
 
 func formatNumber(value float64, precision int) string {

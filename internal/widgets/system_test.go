@@ -49,26 +49,18 @@ func TestClipboardSuppression(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
-	suppressClipboardRecording("hunter2")
-
-	if !clipboardRecordingSuppressed("hunter2") {
-		t.Fatal("suppressed text should be recognised")
+	if err := suppressClipboardRecording("hunter2"); err != nil {
+		t.Fatal(err)
 	}
 
-	if clipboardRecordingSuppressed("other text") {
-		t.Fatal("other text should not be suppressed")
-	}
-
-	hidden := recordClipboardText("hunter2", 5)
-
-	if len(hidden) != 0 {
+	if hidden := recordClipboardText("hunter2", 5); len(hidden) != 0 {
 		t.Fatalf("suppressed text should not be recorded, got %+v", hidden)
 	}
 
 	recorded := recordClipboardText("user@example.com", 5)
 
 	if len(recorded) != 1 || recorded[0].Text != "user@example.com" {
-		t.Fatalf("normal text should still be recorded, got %+v", recorded)
+		t.Fatalf("non-suppressed text should still be recorded, got %+v", recorded)
 	}
 }
 

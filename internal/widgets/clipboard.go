@@ -46,10 +46,6 @@ func (c Clipboard) Init() tea.Cmd {
 		return nil
 	}
 
-	return loadClipboardCmd()
-}
-
-func loadClipboardCmd() tea.Cmd {
 	return func() tea.Msg {
 		return clipboardHistoryMsg(loadClipboardHistory())
 	}
@@ -163,49 +159,42 @@ func (c Clipboard) View(width, rows int) string {
 	now := time.Now().Unix()
 
 	return c.list.view(width, rows, func(entry clipboardEntry, selected bool, width int) string {
-		return c.renderEntry(entry, selected, width, now)
-	})
-}
+		avail := max(width-2, 1)
 
-func (c Clipboard) renderEntry(entry clipboardEntry, selected bool, width int, now int64) string {
-	avail := max(width-2, 1)
+		age := ""
 
-	age := timeAgo(entry.Time, now)
-	preview := clipboardPreview(entry.Text)
-
-	if lines := strings.Count(strings.TrimSpace(entry.Text), "\n"); lines > 0 {
-		preview += " ⏎"
-	}
-
-	if lipgloss.Width(preview) > avail {
-		preview = truncate(preview, avail)
-		age = ""
-	}
-
-	sub := ""
-
-	if age != "" {
-		if gap := avail - lipgloss.Width(preview); gap > lipgloss.Width(age)+1 {
-			sub = strings.Repeat(" ", gap-lipgloss.Width(age)) + subtleStyle.Render(age)
+		switch elapsed := now - entry.Time; {
+		case elapsed < 60:
+			age = "now"
+		case elapsed < 3600:
+			age = strconv.FormatInt(elapsed/60, 10) + "m"
+		case elapsed < 86400:
+			age = strconv.FormatInt(elapsed/3600, 10) + "h"
+		default:
+			age = strconv.FormatInt(elapsed/86400, 10) + "d"
 		}
-	}
 
-	return renderRow(clipboardAccent, selected, preview, sub)
-}
+		preview := clipboardPreview(entry.Text)
 
-func timeAgo(unix, now int64) string {
-	elapsed := now - unix
+		if lines := strings.Count(strings.TrimSpace(entry.Text), "\n"); lines > 0 {
+			preview += " ⏎"
+		}
 
-	switch {
-	case elapsed < 60:
-		return "now"
-	case elapsed < 3600:
-		return strconv.FormatInt(elapsed/60, 10) + "m"
-	case elapsed < 86400:
-		return strconv.FormatInt(elapsed/3600, 10) + "h"
-	default:
-		return strconv.FormatInt(elapsed/86400, 10) + "d"
-	}
+		if lipgloss.Width(preview) > avail {
+			preview = truncate(preview, avail)
+			age = ""
+		}
+
+		sub := ""
+
+		if age != "" {
+			if gap := avail - lipgloss.Width(preview); gap > lipgloss.Width(age)+1 {
+				sub = strings.Repeat(" ", gap-lipgloss.Width(age)) + subtleStyle.Render(age)
+			}
+		}
+
+		return renderRow(clipboardAccent, selected, preview, sub)
+	})
 }
 
 func WatchClipboard(cfg ClipboardConfig) error {
@@ -243,8 +232,16 @@ func WatchClipboard(cfg ClipboardConfig) error {
 }
 
 func RecordClipboardStdin(cfg ClipboardConfig) error {
-	if !cfg.Enabled || clipboardMarkedSensitive() {
+	if !cfg.Enabled {
 		return nil
+	}
+
+	if wlPaste, err := exec.LookPath("wl-paste"); err == nil {
+		if output, err := exec.Command(wlPaste, "--list-types").Output(); err == nil {
+			if strings.Contains(string(output), "x-kde-passwordManagerHint") {
+				return nil
+			}
+		}
 	}
 
 	data, err := io.ReadAll(io.LimitReader(os.Stdin, 256*1024))
@@ -256,20 +253,4 @@ func RecordClipboardStdin(cfg ClipboardConfig) error {
 	recordClipboardText(string(data), cfg.MaxItems)
 
 	return nil
-}
-
-func clipboardMarkedSensitive() bool {
-	wlPaste, err := exec.LookPath("wl-paste")
-
-	if err != nil {
-		return false
-	}
-
-	output, err := exec.Command(wlPaste, "--list-types").Output()
-
-	if err != nil {
-		return false
-	}
-
-	return strings.Contains(string(output), "x-kde-passwordManagerHint")
 }

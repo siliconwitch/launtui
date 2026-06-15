@@ -54,71 +54,55 @@ func (p Passwords) Init() tea.Cmd {
 		return nil
 	}
 
-	return loadPasswordEntriesCmd(p.cfg.Store)
-}
-
-func passwordStoreDir(configured string) string {
-	if configured != "" {
-		return expandHome(configured)
-	}
-
-	if dir := os.Getenv("PASSWORD_STORE_DIR"); dir != "" {
-		return dir
-	}
-
-	home, err := os.UserHomeDir()
-
-	if err != nil {
-		return ""
-	}
-
-	return filepath.Join(home, ".password-store")
-}
-
-func loadPasswordEntriesCmd(configuredStore string) tea.Cmd {
 	return func() tea.Msg {
-		return passwordEntriesMsg(scanPasswordStore(passwordStoreDir(configuredStore)))
-	}
-}
+		store := ""
 
-func scanPasswordStore(store string) []string {
-	if store == "" {
-		return nil
-	}
-
-	var entries []string
-
-	_ = filepath.WalkDir(store, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
+		if p.cfg.Store != "" {
+			store = expandHome(p.cfg.Store)
+		} else if dir := os.Getenv("PASSWORD_STORE_DIR"); dir != "" {
+			store = dir
+		} else if home, err := os.UserHomeDir(); err == nil {
+			store = filepath.Join(home, ".password-store")
 		}
 
-		if entry.IsDir() {
-			if strings.HasPrefix(entry.Name(), ".") && path != store {
-				return filepath.SkipDir
+		if store == "" {
+			return passwordEntriesMsg(nil)
+		}
+
+		var entries []string
+
+		_ = filepath.WalkDir(store, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
 			}
 
+			if entry.IsDir() {
+				if strings.HasPrefix(entry.Name(), ".") && path != store {
+					return filepath.SkipDir
+				}
+
+				return nil
+			}
+
+			if !strings.HasSuffix(entry.Name(), ".gpg") {
+				return nil
+			}
+
+			relative, err := filepath.Rel(store, path)
+
+			if err != nil {
+				return nil
+			}
+
+			entries = append(entries, strings.TrimSuffix(relative, ".gpg"))
+
 			return nil
-		}
+		})
 
-		if !strings.HasSuffix(entry.Name(), ".gpg") {
-			return nil
-		}
+		sort.Strings(entries)
 
-		relative, err := filepath.Rel(store, path)
-
-		if err != nil {
-			return nil
-		}
-
-		entries = append(entries, strings.TrimSuffix(relative, ".gpg"))
-
-		return nil
-	})
-
-	sort.Strings(entries)
-
-	return entries
+		return passwordEntriesMsg(entries)
+	}
 }
 
 func (p Passwords) Update(msg tea.Msg) (Mode, tea.Cmd) {
@@ -129,7 +113,40 @@ func (p Passwords) Update(msg tea.Msg) (Mode, tea.Cmd) {
 		return p, nil
 
 	case passwordShownMsg:
-		return p.handleShown(msg)
+		if msg.err != nil {
+			p.errorText = "pass failed — wrong passphrase or cancelled"
+
+			return p, nil
+		}
+
+		lines := strings.Split(msg.output, "\n")
+		password := strings.TrimRight(lines[0], "\r")
+
+		if password == "" {
+			p.errorText = "entry is empty"
+
+			return p, nil
+		}
+
+		username := ""
+
+		if len(lines) > 1 {
+			username = strings.TrimSpace(lines[1])
+		}
+
+		return p, func() tea.Msg {
+			if suppressClipboardRecording(password) != nil {
+				return passwordCopyBlockedMsg{}
+			}
+
+			copyToClipboard(password)
+
+			if username != "" {
+				recordClipboardText(username, 0)
+			}
+
+			return RequestQuitMsg{}
+		}
 
 	case passwordCopyBlockedMsg:
 		p.errorText = "could not protect clipboard history — password not copied"
@@ -138,43 +155,6 @@ func (p Passwords) Update(msg tea.Msg) (Mode, tea.Cmd) {
 	}
 
 	return p, nil
-}
-
-func (p Passwords) handleShown(msg passwordShownMsg) (Mode, tea.Cmd) {
-	if msg.err != nil {
-		p.errorText = "pass failed — wrong passphrase or cancelled"
-
-		return p, nil
-	}
-
-	lines := strings.Split(msg.output, "\n")
-	password := strings.TrimRight(lines[0], "\r")
-
-	if password == "" {
-		p.errorText = "entry is empty"
-
-		return p, nil
-	}
-
-	username := ""
-
-	if len(lines) > 1 {
-		username = strings.TrimSpace(lines[1])
-	}
-
-	return p, func() tea.Msg {
-		if suppressClipboardRecording(password) != nil {
-			return passwordCopyBlockedMsg{}
-		}
-
-		copyToClipboard(password)
-
-		if username != "" {
-			recordClipboardText(username, 0)
-		}
-
-		return RequestQuitMsg{}
-	}
 }
 
 func (p Passwords) SetQuery(query string) Mode {
@@ -205,10 +185,6 @@ func (p Passwords) Activate() tea.Cmd {
 		return nil
 	}
 
-	return showPasswordCmd(entry)
-}
-
-func showPasswordCmd(entry string) tea.Cmd {
 	cmd := exec.Command("pass", "show", entry)
 
 	var output bytes.Buffer

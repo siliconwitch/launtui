@@ -86,8 +86,18 @@ func loadClipboardHistory() []clipboardEntry {
 }
 
 func recordClipboardText(text string, limit int) []clipboardEntry {
-	if strings.TrimSpace(text) == "" || clipboardRecordingSuppressed(text) {
+	if strings.TrimSpace(text) == "" {
 		return loadClipboardHistory()
+	}
+
+	if path, err := launtuiCachePath(suppressionFile); err == nil {
+		if suppression, ok := loadJSON[clipboardSuppression](path); ok {
+			if time.Now().Unix() > suppression.Expires {
+				_ = os.Remove(path)
+			} else if saltedHash(suppression.Salt, text) == suppression.Hash {
+				return loadClipboardHistory()
+			}
+		}
 	}
 
 	entry := clipboardEntry{Text: text, Time: time.Now().Unix()}
@@ -143,28 +153,6 @@ func suppressClipboardRecording(text string) error {
 	}
 
 	return saveJSON(path, suppression)
-}
-
-func clipboardRecordingSuppressed(text string) bool {
-	path, err := launtuiCachePath(suppressionFile)
-
-	if err != nil {
-		return false
-	}
-
-	suppression, ok := loadJSON[clipboardSuppression](path)
-
-	if !ok {
-		return false
-	}
-
-	if time.Now().Unix() > suppression.Expires {
-		_ = os.Remove(path)
-
-		return false
-	}
-
-	return saltedHash(suppression.Salt, text) == suppression.Hash
 }
 
 func saltedHash(salt, text string) string {

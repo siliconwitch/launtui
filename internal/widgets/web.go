@@ -60,10 +60,6 @@ func (w Web) Init() tea.Cmd {
 		return nil
 	}
 
-	return loadWebHistoryCmd()
-}
-
-func loadWebHistoryCmd() tea.Cmd {
 	return func() tea.Msg {
 		path, err := launtuiDataPath(webHistoryFile)
 
@@ -98,7 +94,30 @@ func (w Web) SetQuery(query string) Mode {
 		return w
 	}
 
-	if address, ok := queryAsURL(w.query); ok {
+	address, isURL := "", false
+
+	if !strings.ContainsAny(w.query, " \t") {
+		switch {
+		case strings.HasPrefix(w.query, "http://"), strings.HasPrefix(w.query, "https://"):
+			address, isURL = w.query, true
+		default:
+			host, _, _ := strings.Cut(w.query, "/")
+
+			if strings.HasPrefix(host, "localhost") {
+				rest := strings.TrimPrefix(host, "localhost")
+
+				if rest == "" || webPortPattern.MatchString(rest) {
+					address, isURL = "http://"+w.query, true
+				}
+			}
+
+			if !isURL && webHostPattern.MatchString(host) {
+				address, isURL = "https://"+w.query, true
+			}
+		}
+	}
+
+	if isURL {
 		w.actions = append(w.actions, webAction{label: "Open " + address, url: address})
 	}
 
@@ -112,32 +131,6 @@ var (
 	webHostPattern = regexp.MustCompile(`^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?$`)
 	webPortPattern = regexp.MustCompile(`^:\d+$`)
 )
-
-func queryAsURL(query string) (string, bool) {
-	if strings.ContainsAny(query, " \t") {
-		return "", false
-	}
-
-	if strings.HasPrefix(query, "http://") || strings.HasPrefix(query, "https://") {
-		return query, true
-	}
-
-	host, _, _ := strings.Cut(query, "/")
-
-	if strings.HasPrefix(host, "localhost") {
-		rest := strings.TrimPrefix(host, "localhost")
-
-		if rest == "" || webPortPattern.MatchString(rest) {
-			return "http://" + query, true
-		}
-	}
-
-	if webHostPattern.MatchString(host) {
-		return "https://" + query, true
-	}
-
-	return "", false
-}
 
 func (w Web) HasResults() bool {
 	return len(w.actions) > 0
@@ -168,9 +161,15 @@ func (w Web) MoveDown() Mode {
 }
 
 func (w Web) Activate() tea.Cmd {
-	visit, ok := w.selectedVisit()
+	var visit webVisit
 
-	if !ok {
+	if w.cursor < len(w.actions) {
+		action := w.actions[w.cursor]
+		visit = webVisit{Label: action.label, URL: action.url, Time: time.Now().Unix()}
+	} else if index := w.cursor - len(w.actions); index < len(w.history) {
+		visit = w.history[index]
+		visit.Time = time.Now().Unix()
+	} else {
 		return nil
 	}
 
@@ -178,29 +177,25 @@ func (w Web) Activate() tea.Cmd {
 
 	return func() tea.Msg {
 		spawnDetached("", "xdg-open", visit.URL)
-		recordWebVisit(visit, limit)
+
+		if limit <= 0 {
+			limit = 50
+		}
+
+		path, err := launtuiDataPath(webHistoryFile)
+
+		if err == nil {
+			previous, _ := loadJSON[[]webVisit](path)
+
+			entries := prependCapped(previous, visit, limit, func(existing webVisit) bool {
+				return existing.URL == visit.URL
+			})
+
+			_ = saveJSON(path, entries)
+		}
 
 		return RequestQuitMsg{}
 	}
-}
-
-func (w Web) selectedVisit() (webVisit, bool) {
-	if w.cursor < len(w.actions) {
-		action := w.actions[w.cursor]
-
-		return webVisit{Label: action.label, URL: action.url, Time: time.Now().Unix()}, true
-	}
-
-	index := w.cursor - len(w.actions)
-
-	if index < len(w.history) {
-		visit := w.history[index]
-		visit.Time = time.Now().Unix()
-
-		return visit, true
-	}
-
-	return webVisit{}, false
 }
 
 func (w Web) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
@@ -240,26 +235,6 @@ func saveWebHistoryCmd(history []webVisit) tea.Cmd {
 	}
 }
 
-func recordWebVisit(visit webVisit, limit int) {
-	if limit <= 0 {
-		limit = 50
-	}
-
-	path, err := launtuiDataPath(webHistoryFile)
-
-	if err != nil {
-		return
-	}
-
-	previous, _ := loadJSON[[]webVisit](path)
-
-	entries := prependCapped(previous, visit, limit, func(existing webVisit) bool {
-		return existing.URL == visit.URL
-	})
-
-	_ = saveJSON(path, entries)
-}
-
 func (w Web) View(width, rows int) string {
 	if w.itemCount() == 0 {
 		return subtleStyle.Render("type a web address or search query")
@@ -268,7 +243,7 @@ func (w Web) View(width, rows int) string {
 	var lines []string
 
 	for i, action := range w.actions {
-		lines = append(lines, w.renderAction(action, i == w.cursor, width))
+		lines = append(lines, renderRow(webAccent, i == w.cursor, truncate(action.label, max(width-2, 1)), ""))
 	}
 
 	historyRows := rows - len(lines)
@@ -278,17 +253,9 @@ func (w Web) View(width, rows int) string {
 		start, end := visibleRange(max(selected, 0), historyRows, len(w.history))
 
 		for i := start; i < end; i++ {
-			lines = append(lines, w.renderVisit(w.history[i], i == selected, width))
+			lines = append(lines, renderHistoryRow(webAccent, i == selected, truncate(w.history[i].Label, max(width-2, 1))))
 		}
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-func (w Web) renderAction(action webAction, selected bool, width int) string {
-	return renderRow(webAccent, selected, truncate(action.label, max(width-2, 1)), "")
-}
-
-func (w Web) renderVisit(visit webVisit, selected bool, width int) string {
-	return renderHistoryRow(webAccent, selected, truncate(visit.Label, max(width-2, 1)))
 }
