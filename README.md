@@ -164,7 +164,7 @@ and test your code before submitting.
 launtui currently targets Linux, but it already cross-compiles for macOS and
 the OS-specific behaviour is confined to a handful of functions. A port needs:
 
-- `internal/widgets/system.go` — add `pbcopy`/`pbpaste` to the clipboard tool
+- `internal/widgets/widgets.go` — add `pbcopy`/`pbpaste` to the clipboard tool
   lists.
 - `internal/widgets/web.go` — launch URLs with `open` instead of `xdg-open`.
 - `internal/widgets/run.go` — `scanDesktopApps` and `launchArgv` are XDG

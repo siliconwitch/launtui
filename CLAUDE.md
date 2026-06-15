@@ -72,14 +72,18 @@ Every widget lives in `internal/widgets/<name>.go` and contains, together: its
 config struct (with `toml` tags) and defaults, the method exposing its config
 section name, its model type and constructor, its message handling, and its
 rendering helpers, plus any private message types it needs. Shared,
-widget-agnostic code lives in `internal/widgets/widgets.go` (the mode
+widget-agnostic code lives in `internal/widgets/widgets.go`: the mode
 interfaces and app-level messages, the `Row` descriptor and the shared results
 renderer that draws an active mode's rows with cursor, windowing, and
 right-aligned columns, the fuzzy-filtered `list` that stores and filters a
-mode's items, shared styles, text truncation, and the history slice helpers)
-and `internal/widgets/system.go` (OS integration: clipboard access and
-recording, JSON storage under the XDG directories, home-path expansion, and
-launching processes — detached or wrapped in a terminal emulator).
+mode's items, shared styles, text truncation, and the history slice helpers,
+together with the OS-integration facilities used across widgets — clipboard
+access, the shared clipboard-history store and its suppression protocol (a
+copy-recording sink written by several widgets and a background process, owned
+by none), JSON storage under the XDG directories, home-path expansion, and
+launching processes (detached or wrapped in a terminal emulator). These are
+shared facilities, not any widget's behaviour: a widget that records a copy or
+launches a process calls them rather than reaching into another widget.
 A mode whose UI is a single filterable list holds a `list` field and maps its
 filtered items to rows in `Rows()`, keeping only its own activation logic.
 
