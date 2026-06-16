@@ -240,6 +240,40 @@ func TestCalculatorHistorySelection(t *testing.T) {
 	}
 }
 
+func TestCalculatorRecall(t *testing.T) {
+	mode, _ := NewCalculator(DefaultCalculatorConfig()).Update(calculatorHistoryMsg{
+		{Expression: "1+1", Answer: "2"},
+		{Expression: "2+2", Answer: "4"},
+	})
+
+	withLive := mode.SetQuery("3+3").(Calculator)
+
+	cases := []struct {
+		index int
+		text  string
+		ok    bool
+	}{
+		{0, "", false},
+		{1, "1+1", true},
+		{2, "2+2", true},
+		{3, "", false},
+	}
+
+	for _, c := range cases {
+		text, ok := withLive.RecallText(c.index)
+
+		if text != c.text || ok != c.ok {
+			t.Errorf("RecallText(%d) = (%q, %v), want (%q, %v)", c.index, text, ok, c.text, c.ok)
+		}
+	}
+
+	empty := mode.SetQuery("").(Calculator)
+
+	if text, ok := empty.RecallText(0); text != "1+1" || !ok {
+		t.Errorf("RecallText(0) without a live row = (%q, %v), want (1+1, true)", text, ok)
+	}
+}
+
 func TestCalculatorDeleteHistory(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 

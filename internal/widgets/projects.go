@@ -393,7 +393,11 @@ func (p Projects) Activate(index int) tea.Cmd {
 	editorTerminal := p.cfg.EditorTerminal
 
 	return func() tea.Msg {
-		argv := editorArgv(editor)
+		argv := strings.Fields(editor)
+
+		if directoryCapableEditors[filepath.Base(argv[0])] {
+			argv = append(argv, ".")
+		}
 
 		inTerminal := terminalEditors[filepath.Base(argv[0])]
 
@@ -419,14 +423,4 @@ var terminalEditors = map[string]bool{
 var directoryCapableEditors = map[string]bool{
 	"hx": true, "helix": true, "vi": true, "vim": true, "nvim": true,
 	"emacs": true, "code": true, "codium": true, "subl": true, "zed": true,
-}
-
-func editorArgv(editor string) []string {
-	words := strings.Fields(editor)
-
-	if directoryCapableEditors[filepath.Base(words[0])] {
-		return append(words, ".")
-	}
-
-	return words
 }

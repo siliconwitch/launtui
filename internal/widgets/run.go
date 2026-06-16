@@ -258,7 +258,13 @@ func parseDesktopFile(path string) (desktopApp, bool) {
 		case "Comment":
 			app.Comment = strings.TrimSpace(value)
 		case "Exec":
-			app.Exec = stripFieldCodes(value)
+			execLine := strings.ReplaceAll(value, "%%", "\x00")
+			execLine = execFieldCodes.ReplaceAllString(execLine, "")
+			execLine = strings.ReplaceAll(execLine, `""`, "")
+			execLine = strings.ReplaceAll(execLine, `''`, "")
+			execLine = strings.ReplaceAll(execLine, "\x00", "%")
+
+			app.Exec = strings.TrimSpace(execLine)
 		case "TryExec":
 			tryExec = strings.TrimSpace(value)
 		case "Path":
@@ -325,14 +331,4 @@ func desktopVisibleIn(onlyShowIn, notShowIn, currentDesktop string) bool {
 	}
 
 	return true
-}
-
-func stripFieldCodes(execLine string) string {
-	execLine = strings.ReplaceAll(execLine, "%%", "\x00")
-	execLine = execFieldCodes.ReplaceAllString(execLine, "")
-	execLine = strings.ReplaceAll(execLine, `""`, "")
-	execLine = strings.ReplaceAll(execLine, `''`, "")
-	execLine = strings.ReplaceAll(execLine, "\x00", "%")
-
-	return strings.TrimSpace(execLine)
 }

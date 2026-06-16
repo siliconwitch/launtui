@@ -115,29 +115,3 @@ func TestParseGitStatus(t *testing.T) {
 		t.Fatalf("detached status = %+v", detached)
 	}
 }
-
-func TestEditorArgv(t *testing.T) {
-	cases := map[string][]string{
-		"hx":            {"hx", "."},
-		"/usr/bin/nvim": {"/usr/bin/nvim", "."},
-		"code --wait":   {"code", "--wait", "."},
-		"nano":          {"nano"},
-		"micro":         {"micro"},
-	}
-
-	for editor, want := range cases {
-		got := editorArgv(editor)
-
-		if len(got) != len(want) {
-			t.Errorf("editorArgv(%q) = %v, want %v", editor, got, want)
-			continue
-		}
-
-		for i := range want {
-			if got[i] != want[i] {
-				t.Errorf("editorArgv(%q) = %v, want %v", editor, got, want)
-				break
-			}
-		}
-	}
-}

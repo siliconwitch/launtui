@@ -246,6 +246,22 @@ func (c Calculator) Activate(index int) tea.Cmd {
 	}
 }
 
+func (c Calculator) RecallText(index int) (string, bool) {
+	live := 0
+
+	if c.valid {
+		live = 1
+	}
+
+	entry := index - live
+
+	if entry < 0 || entry >= len(c.history) {
+		return "", false
+	}
+
+	return c.history[entry].Expression, true
+}
+
 func (c Calculator) DeleteRow(index int) (Mode, tea.Cmd) {
 	live := 0
 

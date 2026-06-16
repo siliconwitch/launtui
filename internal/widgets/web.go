@@ -34,6 +34,7 @@ type webAction struct {
 type webVisit struct {
 	Label string `json:"label"`
 	URL   string `json:"url"`
+	Query string `json:"query"`
 	Time  int64  `json:"time"`
 }
 
@@ -170,7 +171,7 @@ func (w Web) Activate(index int) tea.Cmd {
 
 	if index < len(w.actions) {
 		action := w.actions[index]
-		visit = webVisit{Label: action.label, URL: action.url, Time: time.Now().Unix()}
+		visit = webVisit{Label: action.label, URL: action.url, Query: w.query, Time: time.Now().Unix()}
 	} else if history := index - len(w.actions); history >= 0 && history < len(w.history) {
 		visit = w.history[history]
 		visit.Time = time.Now().Unix()
@@ -201,6 +202,22 @@ func (w Web) Activate(index int) tea.Cmd {
 
 		return RequestQuitMsg{}
 	}
+}
+
+func (w Web) RecallText(index int) (string, bool) {
+	entry := index - len(w.actions)
+
+	if entry < 0 || entry >= len(w.history) {
+		return "", false
+	}
+
+	visit := w.history[entry]
+
+	if visit.Query != "" {
+		return visit.Query, true
+	}
+
+	return visit.URL, true
 }
 
 func (w Web) DeleteRow(index int) (Mode, tea.Cmd) {

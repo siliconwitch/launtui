@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/siliconwitch/launtui/internal/widgets"
 )
@@ -33,6 +34,9 @@ type App struct {
 	current int
 	cursor  int
 	auto    bool
+
+	draft     string
+	recalling bool
 
 	width  int
 	height int
@@ -168,6 +172,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.current = i
 				a.auto = false
 				a.cursor = 0
+				a.recalling = false
 
 				return a, a.notifySelection()
 			}
@@ -180,6 +185,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.current = a.adjacentMode(1)
 			a.auto = false
 			a.cursor = 0
+			a.recalling = false
 
 			return a, a.notifySelection()
 
@@ -187,6 +193,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.current = a.adjacentMode(-1)
 			a.auto = false
 			a.cursor = 0
+			a.recalling = false
 
 			return a, a.notifySelection()
 
@@ -196,16 +203,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 
 		case "up":
-			if a.cursor > 0 {
-				a.cursor--
-			}
+			a.navigate(-1)
 
 			return a, a.notifySelection()
 
 		case "down":
-			if a.cursor < len(a.modes[a.current].Rows())-1 {
-				a.cursor++
-			}
+			a.navigate(1)
 
 			return a, a.notifySelection()
 
@@ -318,12 +321,75 @@ func (a *App) notifySelection() tea.Cmd {
 
 func (a *App) setQuery(query string) {
 	a.cursor = 0
+	a.recalling = false
 
+	a.applyQuery(query)
+}
+
+func (a *App) applyQuery(query string) {
 	for i := range a.modes {
 		if a.modes[i].Enabled() {
 			a.modes[i] = a.modes[i].SetQuery(query)
 		}
 	}
+}
+
+func (a *App) navigate(delta int) {
+	recaller, isRecaller := a.modes[a.current].(widgets.Recaller)
+
+	move := true
+
+	if isRecaller && !a.recalling {
+		if _, onHistory := recaller.RecallText(a.cursor); onHistory {
+			move = false
+		}
+	}
+
+	if move {
+		a.cursor += delta
+	}
+
+	if a.cursor < 0 {
+		a.cursor = 0
+	}
+
+	a.clampCursor()
+
+	if isRecaller {
+		a.recall(recaller)
+	}
+}
+
+func (a *App) recall(recaller widgets.Recaller) {
+	text, onHistory := recaller.RecallText(a.cursor)
+
+	switch {
+	case onHistory:
+		if !a.recalling {
+			a.draft = a.input.Value()
+			a.recalling = true
+		}
+	case a.recalling:
+		text = a.draft
+		a.recalling = false
+	default:
+		return
+	}
+
+	a.input.SetValue(text)
+	a.input.CursorEnd()
+
+	before := len(a.modes[a.current].Rows())
+
+	a.applyQuery(text)
+
+	a.cursor += len(a.modes[a.current].Rows()) - before
+
+	if a.cursor < 0 {
+		a.cursor = 0
+	}
+
+	a.clampCursor()
 }
 
 func (a *App) close() tea.Cmd {
@@ -413,27 +479,33 @@ func (a App) View() string {
 
 	bar := strings.Join(modes, "  ")
 
-	placeholder := "Search"
+	a.input.Placeholder = "Search or ctrl+h for help"
 
 	if a.auto {
-		placeholder += " · auto"
+		a.input.Placeholder += " (auto mode)"
 	}
 
-	a.input.Placeholder = placeholder + " · ctrl+h help"
-
-	left := lipgloss.JoinVertical(lipgloss.Left, bar, a.input.View())
+	statusWidth := max(0, contentWidth-lipgloss.Width(bar)-1)
 
 	var status []string
 
-	for _, part := range []string{a.clock.View(), a.battery.View()} {
-		if part != "" {
-			status = append(status, part)
+	if statusWidth > 0 {
+		for _, part := range []string{a.clock.View(), a.battery.View()} {
+			if part != "" {
+				status = append(status, ansi.Truncate(part, statusWidth, "…"))
+			}
 		}
 	}
 
 	right := lipgloss.JoinVertical(lipgloss.Right, status...)
+	rightWidth := lipgloss.Width(right)
 
-	gap := max(1, contentWidth-lipgloss.Width(left)-lipgloss.Width(right))
+	promptAndCursor := lipgloss.Width(a.input.Prompt) + 1
+	a.input.Width = max(1, contentWidth-rightWidth-1-promptAndCursor)
+
+	left := lipgloss.JoinVertical(lipgloss.Left, bar, a.input.View())
+
+	gap := max(1, contentWidth-lipgloss.Width(left)-rightWidth)
 	header := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
 
 	divider := dividerStyle.Render(strings.Repeat("─", contentWidth))

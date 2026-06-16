@@ -44,7 +44,7 @@ func TestRunCommentToggle(t *testing.T) {
 	}
 }
 
-func TestStripFieldCodes(t *testing.T) {
+func TestParseDesktopFileStripsExecFieldCodes(t *testing.T) {
 	cases := map[string]string{
 		"firefox %u":                                  "firefox",
 		"code --new-window %F":                        "code --new-window",
@@ -54,9 +54,20 @@ func TestStripFieldCodes(t *testing.T) {
 		"mpv --player-operation-mode=pseudo-gui '%U'": "mpv --player-operation-mode=pseudo-gui",
 	}
 
-	for in, want := range cases {
-		if got := stripFieldCodes(in); got != want {
-			t.Errorf("stripFieldCodes(%q) = %q, want %q", in, got, want)
+	dir := t.TempDir()
+
+	for exec, want := range cases {
+		path := filepath.Join(dir, "entry.desktop")
+		contents := "[Desktop Entry]\nType=Application\nName=Test\nExec=" + exec + "\n"
+
+		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		app, ok := parseDesktopFile(path)
+
+		if !ok || app.Exec != want {
+			t.Errorf("parseDesktopFile(Exec=%q) = %q (ok=%v), want %q", exec, app.Exec, ok, want)
 		}
 	}
 }

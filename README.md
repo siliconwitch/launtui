@@ -85,7 +85,7 @@ launtui -s   # Web search
 ### Clipboard watcher
 
 The Clip mode records everything launtui itself copies. To also record copies
-made anywhere else, keep the watcher running in the background — for example
+made anywhere else, keep the watcher running in the background - for example
 in your compositor's autostart (sway/niri/hyprland):
 
 ```

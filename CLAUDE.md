@@ -49,8 +49,8 @@ General and meant to be reused verbatim across projects.
 - **Capability interfaces, not fat ones.** A unit implements a small core
   interface and opts into extra behaviour only by satisfying additional, single-
   purpose interfaces that the composition root detects with a type assertion
-  (`Mode`, plus optional `StrongMatcher`, `RowDeleter`, `Selectable`). New
-  capabilities never widen the core interface.
+  (`Mode`, plus optional `StrongMatcher`, `RowDeleter`, `Selectable`,
+  `Recaller`). New capabilities never widen the core interface.
 - **Declarative, decentralized config.** Each unit owns its config struct,
   defaults, and section name; one generic, unit-agnostic loader overlays the
   on-disk file. Adding or changing config never touches the loader.
@@ -124,7 +124,11 @@ confidence. A mode whose rows can be deleted additionally satisfies
 `widgets.RowDeleter`; `app.go` routes the delete (the selected deletable row)
 and alt+delete (clear all) keys through it. A mode that resolves extra row
 detail lazily for the highlighted entry satisfies `widgets.Selectable`;
-`app.go` calls its `Select(index)` whenever the selection moves.
+`app.go` calls its `Select(index)` whenever the selection moves. A mode whose
+rows carry editable source text satisfies `widgets.Recaller`; as the selection
+moves over those rows `app.go` loads each `RecallText(index)` into the shared
+input for editing, saving the typed draft on the way in and restoring it when
+the selection leaves the recallable rows.
 
 Quitting is owned by `app.go`: widget `Cmd`s never return `tea.QuitMsg`
 (bubbletea short-circuits it before `Update`); they return

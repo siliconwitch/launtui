@@ -49,6 +49,10 @@ type Selectable interface {
 	Select(index int) (Mode, tea.Cmd)
 }
 
+type Recaller interface {
+	RecallText(index int) (string, bool)
+}
+
 var (
 	subtleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))

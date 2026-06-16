@@ -51,6 +51,35 @@ func TestWebHistorySelection(t *testing.T) {
 	}
 }
 
+func TestWebRecall(t *testing.T) {
+	mode, _ := NewWeb(DefaultWebConfig()).Update(webHistoryMsg{
+		{Label: "Search the web for “go”", URL: "https://duckduckgo.com/?q=go", Query: "go"},
+		{Label: "Open https://github.com", URL: "https://github.com"},
+	})
+
+	web := mode.SetQuery("google.com").(Web)
+
+	cases := []struct {
+		index int
+		text  string
+		ok    bool
+	}{
+		{0, "", false},
+		{1, "", false},
+		{2, "go", true},
+		{3, "https://github.com", true},
+		{4, "", false},
+	}
+
+	for _, c := range cases {
+		text, ok := web.RecallText(c.index)
+
+		if text != c.text || ok != c.ok {
+			t.Errorf("RecallText(%d) = (%q, %v), want (%q, %v)", c.index, text, ok, c.text, c.ok)
+		}
+	}
+}
+
 func TestWebDeleteSelectedHistory(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
@@ -150,6 +179,10 @@ func TestWebRecordsVisitsAndDeduplicates(t *testing.T) {
 
 	if len(saved) != 2 || saved[0].URL != "https://a.example" || saved[1].URL != "https://b.example" {
 		t.Fatalf("saved history = %+v, want a.example moved to front with b.example deduplicated", saved)
+	}
+
+	if saved[0].Query != "a.example" {
+		t.Fatalf("saved query = %q, want the typed query recorded for recall", saved[0].Query)
 	}
 }
 
