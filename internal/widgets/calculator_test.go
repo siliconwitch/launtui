@@ -1,6 +1,9 @@
 package widgets
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestEvalExpressionValid(t *testing.T) {
 	cases := map[string]float64{
@@ -293,5 +296,192 @@ func TestCalculatorRecordsHistoryOnClose(t *testing.T) {
 
 	if !ok || len(history) != 1 || history[0].Expression != "4+5" || history[0].Answer != "9" {
 		t.Fatalf("recorded history = %+v (ok=%v)", history, ok)
+	}
+}
+
+func TestUnitConversionsExtended(t *testing.T) {
+	calculator := NewCalculator(DefaultCalculatorConfig())
+
+	cases := map[string]string{
+		"1 bar to kPa":   "100 kPa",
+		"1 atm to kPa":   "101.325 kPa",
+		"100 psi to kPa": "689.475729 kPa",
+		"1 kgf to N":     "9.80665 N",
+		"1 lbf to N":     "4.448222 N",
+		"1 lbft to Nm":   "1.355818 N·m",
+		"1 lps to lpm":   "60 L/min",
+		"60 lpm to lps":  "1 L/s",
+		"2 MV to kV":     "2000 kV",
+		"2 MA to kA":     "2000 kA",
+		"1 TW to GW":     "1000 GW",
+		"1 hp to W":      "745.699872 W",
+		"1 GiB to MiB":   "1024 MiB",
+	}
+
+	for input, want := range cases {
+		updated := calculator.SetQuery(input).(Calculator)
+
+		if !updated.valid {
+			t.Errorf("SetQuery(%q) should be valid, note=%q", input, updated.note)
+			continue
+		}
+
+		if updated.answer != want {
+			t.Errorf("answer(%q) = %q, want %q", input, updated.answer, want)
+		}
+	}
+}
+
+func TestUnitCaseSensitivity(t *testing.T) {
+	calculator := NewCalculator(DefaultCalculatorConfig())
+
+	cases := map[string]string{
+		"1 mV to V":    "0.001 V",
+		"1 MV to V":    "1000000 V",
+		"1 mA to A":    "0.001 A",
+		"1 MA to A":    "1000000 A",
+		"1 kb to kB":   "0.125 kB",
+		"1 kB to kb":   "8 kb",
+		"8 b to B":     "1 B",
+		"1 MB to Mb":   "8 Mb",
+		"5 v to mv":    "5000 mV",
+		"1 ghz to mhz": "1000 MHz",
+	}
+
+	for input, want := range cases {
+		updated := calculator.SetQuery(input).(Calculator)
+
+		if !updated.valid {
+			t.Errorf("SetQuery(%q) should be valid, note=%q", input, updated.note)
+			continue
+		}
+
+		if updated.answer != want {
+			t.Errorf("answer(%q) = %q, want %q", input, updated.answer, want)
+		}
+	}
+}
+
+func TestBaseConversion(t *testing.T) {
+	calculator := NewCalculator(DefaultCalculatorConfig())
+
+	cases := map[string]string{
+		"255 to hex":    "0xff",
+		"0xff to dec":   "255",
+		"10 to bin":     "0b1010",
+		"0b1010 to dec": "10",
+		"255 to oct":    "0o377",
+		"0o377 to dec":  "255",
+		"65 to ascii":   "A",
+		"0x41 to ascii": "A",
+		"2^8 to hex":    "0x100",
+		"'A' to dec":    "65",
+		"255 in hex":    "0xff",
+	}
+
+	for input, want := range cases {
+		updated := calculator.SetQuery(input).(Calculator)
+
+		if !updated.valid {
+			t.Errorf("SetQuery(%q) should be valid, note=%q", input, updated.note)
+			continue
+		}
+
+		if updated.answer != want {
+			t.Errorf("answer(%q) = %q, want %q", input, updated.answer, want)
+		}
+	}
+}
+
+func TestBitwiseExpressions(t *testing.T) {
+	cases := map[string]float64{
+		"12 & 10":       8,
+		"12 | 10":       14,
+		"5 xor 3":       6,
+		"1 << 4":        16,
+		"255 >> 4":      15,
+		"~5":            -6,
+		"0xff & 0x0f":   15,
+		"0b1100 | 0b11": 15,
+		"(1 | 2) << 3":  24,
+		"1 << 2 + 3":    32,
+		"1 | 2 & 3":     3,
+		"2 * 3 & 4":     4,
+		"~5 & 3":        2,
+		"shl(1, 8)":     256,
+	}
+
+	for input, want := range cases {
+		got, ok := evalExpression(input)
+
+		if !ok {
+			t.Errorf("evalExpression(%q) failed, want %v", input, want)
+			continue
+		}
+
+		if got != want {
+			t.Errorf("evalExpression(%q) = %v, want %v", input, got, want)
+		}
+	}
+}
+
+func TestMathFunctions(t *testing.T) {
+	cases := map[string]float64{
+		"sqrt(144)":    12,
+		"sqrt(2)":      1.4142135623730951,
+		"cbrt(27)":     3,
+		"abs(-7)":      7,
+		"factorial(5)": 120,
+		"log(1000)":    3,
+		"log2(8)":      3,
+		"ln(e)":        1,
+		"sin(0)":       0,
+		"floor(2.7)":   2,
+		"ceil(2.1)":    3,
+		"round(2.5)":   3,
+		"pi":           math.Pi,
+		"2 * pi":       2 * math.Pi,
+		"exp(0)":       1,
+	}
+
+	for input, want := range cases {
+		got, ok := evalExpression(input)
+
+		if !ok {
+			t.Errorf("evalExpression(%q) failed, want %v", input, want)
+			continue
+		}
+
+		if math.Abs(got-want) > 1e-9 {
+			t.Errorf("evalExpression(%q) = %v, want %v", input, got, want)
+		}
+	}
+}
+
+func TestDecibelConversion(t *testing.T) {
+	calculator := NewCalculator(DefaultCalculatorConfig())
+
+	cases := map[string]string{
+		"1 V to dBV":    "0 dBV",
+		"0 dBV to V":    "1 V",
+		"1 W to dBm":    "30 dBm",
+		"0 dBm to mW":   "1 mW",
+		"30 dBm to W":   "1 W",
+		"1 W to dBW":    "0 dBW",
+		"60 dBµV to mV": "1 mV",
+		"1 mV to dBµV":  "60 dBµV",
+	}
+
+	for input, want := range cases {
+		updated := calculator.SetQuery(input).(Calculator)
+
+		if !updated.valid {
+			t.Errorf("SetQuery(%q) should be valid, note=%q", input, updated.note)
+			continue
+		}
+
+		if updated.answer != want {
+			t.Errorf("answer(%q) = %q, want %q", input, updated.answer, want)
+		}
 	}
 }

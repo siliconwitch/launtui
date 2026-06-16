@@ -13,8 +13,8 @@ func TestClockZoneCycle(t *testing.T) {
 
 	clock := NewClock(cfg)
 
-	if len(clock.locations) != 3 {
-		t.Fatalf("locations = %d, want 3 (local + 2 valid, bogus dropped)", len(clock.locations))
+	if len(clock.zones) != 3 {
+		t.Fatalf("zones = %d, want 3 (local + 2 valid, bogus dropped)", len(clock.zones))
 	}
 
 	if clock.current != 0 {
@@ -39,5 +39,32 @@ func TestClockZoneCycle(t *testing.T) {
 
 	if wrapped := la.NextZone(); wrapped.current != 0 {
 		t.Fatalf("toggle should wrap back to local, got current=%d", wrapped.current)
+	}
+}
+
+func TestClockCityNames(t *testing.T) {
+	cfg := DefaultClockConfig()
+	cfg.Zones = []string{"San Francisco", "tokyo"}
+
+	clock := NewClock(cfg)
+
+	if len(clock.zones) != 3 {
+		t.Fatalf("zones = %d, want 3 (local + 2 cities)", len(clock.zones))
+	}
+
+	sf := clock.NextZone()
+
+	if got := ansi.Strip(sf.View()); !strings.Contains(got, "(San Francisco)") {
+		t.Fatalf("expected pinned city '(San Francisco)' in view, got %q", got)
+	}
+
+	if zone := clock.zones[1].location.String(); zone != "America/Los_Angeles" {
+		t.Fatalf("San Francisco should resolve to America/Los_Angeles, got %q", zone)
+	}
+
+	tokyo := sf.NextZone()
+
+	if got := ansi.Strip(tokyo.View()); !strings.Contains(got, "(Tokyo)") {
+		t.Fatalf("expected '(Tokyo)' (lowercase input title-cased), got %q", got)
 	}
 }

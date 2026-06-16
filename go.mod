@@ -8,6 +8,8 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.6
+	github.com/enescakir/emoji v1.0.0
+	github.com/expr-lang/expr v1.17.8
 	github.com/sahilm/fuzzy v0.1.2
 )
 

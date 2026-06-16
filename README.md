@@ -1,36 +1,19 @@
 # launtui
 
-> TODO update this README including the usage and config sections which are missing the latest features
+<!-- Record a short screen capture of launtui in action and drop it here as docs/demo.gif -->
+![launtui demo](docs/demo.gif)
 
-> TODO I want to include a GIF of the app. Create a placeholder. The gif should do most the talking, and below should be a clean, simple bullet point feature list. No need to overexplain
+A fast, keyboard-driven launcher for the terminal — one search box, with a clock
+and battery at a glance. Start typing and it switches to whichever mode fits.
 
-A fast, keyboard-driven launcher for the terminal, with a clock and battery
-readout at a glance. One search box, six modes:
-
-- **Run** — fuzzy-search your desktop applications and launch them. Terminal
-  apps (`Terminal=true` entries like btop) open in your terminal emulator.
-- **Calc** — evaluate arithmetic (`(2+3)*4`, `2^10`), convert units across
-  length, mass, volume, temperature, data, speed, area, time, angle, frequency,
-  resistance, capacitance, inductance, voltage, current, and power
-  (`5 miles to km`, `100 f to c`, `180 deg to rad`, `1 nf to pf`) and currencies
-  (`10 gbp to usd`, live ECB rates cached for a day). Enter copies the result.
-  Past calculations are kept; scroll down to one and press enter to copy its
-  answer again.
-- **Pass** — fuzzy-search your [pass](https://www.passwordstore.org) store.
-  Enter prompts for your GPG passphrase in the terminal, copies the password
-  to the clipboard, and saves the entry's second line (username/email) to the
-  clipboard history. The password itself is never written to history.
-- **Proj** — fuzzy-search your projects directory and open one in your editor.
-  Git projects are fetched in the background and show their branch (green
-  clean, red dirty) plus blue ↑/↓ arrows when there is anything to push or
-  pull.
-- **Clip** — clipboard history. Enter copies the selected entry back to the
-  clipboard, ready to paste. Run `launtui -watch` in the background to record
-  everything you copy.
-- **Web** — anything that looks like a web address (`google.com`) offers to
-  open in your browser, and any other query (`how do I update go`) falls back
-  to a web search. Past visits and searches are kept; scroll down to one and
-  press enter to open it again.
+- **Run** — fuzzy-launch your desktop applications
+- **Calc** — math (`sqrt`, `pi`, `2^10`), bitwise (`&`, `|`, `<<`, `xor`),
+  number-base (`255 to hex`), unit, and currency conversion
+- **Pass** — search your [pass](https://www.passwordstore.org) store, copy via GPG
+- **Proj** — open a project in your editor, with live git status
+- **Clip** — clipboard history
+- **Emoji** — fuzzy emoji picker
+- **Web** — open a URL or search the web
 
 Built in Go with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and
 [Lip Gloss](https://github.com/charmbracelet/lipgloss). Largely vibecoded —
@@ -96,6 +79,7 @@ launtui -c   # Calculator
 launtui -p   # Passwords
 launtui -o   # Projects
 launtui -v   # Clipboard
+launtui -e   # Emoji
 launtui -s   # Web search
 ```
 
@@ -121,6 +105,7 @@ to the default below.
 ```toml
 [run]
 enabled  = true
+comment  = true                  # show each app's comment as a subtitle
 exclude  = []                    # app names to hide, exactly as shown in the list
 terminal = ""                    # terminal for Terminal=true apps ($TERMINAL or auto-detected)
 
@@ -134,9 +119,12 @@ enabled = true
 store   = ""                     # password store path ($PASSWORD_STORE_DIR or ~/.password-store)
 
 [projects]
-enabled = true
-dir     = "~/projects"           # directory containing your projects
-editor  = ""                     # editor command ($VISUAL or $EDITOR when empty)
+enabled  = true
+dirs     = ["~/Documents"]       # directories scanned for projects
+projects = []                    # extra project paths to include explicitly
+editor   = ""                    # editor command ($VISUAL or $EDITOR when empty)
+terminal = ""                    # terminal for terminal-based editors ($TERMINAL or auto-detected)
+# editor_terminal = true         # force terminal vs GUI launch (auto-detected when unset)
 
 [clipboard]
 enabled   = true
@@ -147,9 +135,13 @@ enabled     = true
 search_url  = "https://duckduckgo.com/?q=%s"   # %s is the escaped query
 max_history = 50                 # visits and searches kept in history
 
+[emoji]
+enabled = true
+
 [clock]
 enabled = true
-format  = "Mon 2 Jan - 15:04"   # Go reference-time layout
+format  = "Mon 2 Jan - 15:04"    # Go reference-time layout
+zones   = []                     # extra zones: city names ("Tokyo") or IANA ("Asia/Tokyo"), cycle with Ctrl-t
 
 [battery]
 enabled = true
@@ -173,8 +165,8 @@ the OS-specific behaviour is confined to a handful of functions. A port needs:
 - `internal/widgets/widgets.go` — add `pbcopy`/`pbpaste` to the clipboard tool
   lists.
 - `internal/widgets/web.go` — launch URLs with `open` instead of `xdg-open`.
-- `internal/widgets/run.go` — `scanDesktopApps` and `launchArgv` are XDG
-  desktop-entry based; macOS needs an `.app` bundle scanner and `open -a`.
+- `internal/widgets/run.go` — `parseDesktopFile` reads XDG desktop entries;
+  macOS needs an `.app` bundle scanner and `open -a`.
 - `internal/widgets/battery.go` — reads `/sys/class/power_supply`; on other
   platforms the widget silently hides itself, so this is optional (`pmset` on
   macOS).

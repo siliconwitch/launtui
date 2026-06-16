@@ -44,8 +44,8 @@ func New(startHotkey string) (App, error) {
 	passwordsConfig := widgets.DefaultPasswordsConfig()
 	projectsConfig := widgets.DefaultProjectsConfig()
 	clipboardConfig := widgets.DefaultClipboardConfig()
-	// TODO add emoji picker feature
 	webConfig := widgets.DefaultWebConfig()
+	emojiConfig := widgets.DefaultEmojiConfig()
 	clockConfig := widgets.DefaultClockConfig()
 	batteryConfig := widgets.DefaultBatteryConfig()
 	helpConfig := widgets.DefaultHelpConfig()
@@ -57,6 +57,7 @@ func New(startHotkey string) (App, error) {
 		&projectsConfig,
 		&clipboardConfig,
 		&webConfig,
+		&emojiConfig,
 		&clockConfig,
 		&batteryConfig,
 		&helpConfig,
@@ -64,7 +65,6 @@ func New(startHotkey string) (App, error) {
 
 	input := textinput.New()
 	input.Prompt = "❯ "
-	input.Placeholder = "Type to search, or Ctrl+h for help" // TODO this text is getting cut off. Fix it
 	input.Focus()
 
 	app := App{
@@ -77,6 +77,7 @@ func New(startHotkey string) (App, error) {
 			widgets.NewPasswords(passwordsConfig),
 			widgets.NewProjects(projectsConfig),
 			widgets.NewClipboard(clipboardConfig),
+			widgets.NewEmoji(emojiConfig),
 			widgets.NewWeb(webConfig),
 		},
 		auto: true,
@@ -119,7 +120,6 @@ func New(startHotkey string) (App, error) {
 }
 
 func (a App) Init() tea.Cmd {
-	// TODO Possible the default terminal cursor rather than a flashing block?
 	cmds := []tea.Cmd{textinput.Blink, a.clock.Init(), a.battery.Init()}
 
 	for _, mode := range a.modes {
@@ -413,9 +413,13 @@ func (a App) View() string {
 
 	bar := strings.Join(modes, "  ")
 
+	placeholder := "Search"
+
 	if a.auto {
-		bar += modeInactiveStyle.Render("  · auto") // TODO rather than showing this in the mode bar, modify the placeholder text
+		placeholder += " · auto"
 	}
+
+	a.input.Placeholder = placeholder + " · ctrl+h help"
 
 	left := lipgloss.JoinVertical(lipgloss.Left, bar, a.input.View())
 
@@ -457,7 +461,6 @@ type Section interface {
 	SectionName() string
 }
 
-// TODO inline this in the init and get rid of Section if it's not needed
 func LoadConfig(targets ...Section) error {
 	path := os.Getenv("LAUNTUI_CONFIG")
 

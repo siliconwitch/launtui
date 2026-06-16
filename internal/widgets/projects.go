@@ -15,11 +15,12 @@ import (
 )
 
 type ProjectsConfig struct {
-	Enabled  bool     `toml:"enabled"`
-	Dirs     []string `toml:"dirs"`
-	Projects []string `toml:"projects"`
-	Editor   string   `toml:"editor"`
-	Terminal string   `toml:"terminal"`
+	Enabled        bool     `toml:"enabled"`
+	Dirs           []string `toml:"dirs"`
+	Projects       []string `toml:"projects"`
+	Editor         string   `toml:"editor"`
+	Terminal       string   `toml:"terminal"`
+	EditorTerminal *bool    `toml:"editor_terminal"`
 }
 
 func (ProjectsConfig) SectionName() string { return "projects" }
@@ -389,11 +390,18 @@ func (p Projects) Activate(index int) tea.Cmd {
 	}
 
 	terminal := p.cfg.Terminal
+	editorTerminal := p.cfg.EditorTerminal
 
 	return func() tea.Msg {
 		argv := editorArgv(editor)
 
-		if terminalEditors[filepath.Base(argv[0])] {
+		inTerminal := terminalEditors[filepath.Base(argv[0])]
+
+		if editorTerminal != nil {
+			inTerminal = *editorTerminal
+		}
+
+		if inTerminal {
 			argv = terminalArgv(resolveTerminal(terminal), strings.Join(argv, " "))
 		}
 
@@ -403,7 +411,6 @@ func (p Projects) Activate(index int) tea.Cmd {
 	}
 }
 
-// TODO I don't need this. Just open the project in the default editor or the one specified in the config if there is one
 var terminalEditors = map[string]bool{
 	"hx": true, "helix": true, "vi": true, "vim": true, "nvim": true,
 	"nano": true, "micro": true, "kak": true, "kakoune": true,

@@ -6,9 +6,7 @@ never describe product functionality or per-feature behaviour. Keep it that way.
 
 ## Coding principles
 
-> TODO Make this section generic such that I can reuse the same block in CLAUDE.md files for other projects
-
-> TODO based on looking at my code, is there any other stylistic preferences in use? If so include them below
+General and meant to be reused verbatim across projects.
 
 - **Complete names.** Use descriptive, whole-word names for non-trivial
   variables (`tuiWidth`, not `boxW`). Short names are acceptable only for
@@ -16,28 +14,30 @@ never describe product functionality or per-feature behaviour. Keep it that way.
 - **Breathing room.** Separate a statement that produces a value from the
   statement that consumes it with a blank line — e.g. an assignment, a blank
   line, then the `if err != nil` check. Group code into readable paragraphs.
+- **Guard clauses.** Handle edge cases and errors first and return early, so the
+  happy path stays unindented and reads straight down the function.
 - **No comments.** Code must explain itself through naming and structure.
   (Struct tags are not comments.)
-- **Procedural code.** Always inline simple logic such that readers don't have
-  to jump around to see what small functions do. 1-3 line functions shouldn't
-  exist unless there's a very good reason. E.g. if the function references
-  something that could change such as a hardcoded filepath. Never create
-  functions that are only used once. Long procedural functions are fine. Reading
-  a single function top to bottom should describe it's entire behaviour with
-  minimal jumping around to other parts of the code.
-- **Functional code.** Prefer functional code where possible. Some libraries may
-  demand statefulness in which case it's okay to follow that style, but for
-  everywhere else it makes sense to do so, try to be functional and avoid
-  statefulness.
-- **Co-location.** A widget is entirely self-contained in its own file: its
-  config, model, behaviour, and rendering live together. No widget-specific
-  logic lives anywhere else. The only references to a widget outside its file
-  are its wiring in `app.go`. Removing a widget means deleting its file and that
-  wiring — nothing is scattered across the project.
+- **Procedural code.** Always inline simple logic so readers don't have to jump
+  around to see what small functions do. 1-3 line functions shouldn't exist
+  unless there's a very good reason — e.g. they wrap something that could change,
+  such as a hardcoded filepath. Never create a function that is only used once.
+  Long procedural functions are fine; reading one top to bottom should describe
+  its entire behaviour with minimal jumping around.
+- **Functional code.** Prefer functional, stateless code. Some libraries demand
+  statefulness and it's fine to follow their style, but everywhere else avoid
+  mutable state.
+- **Switch over ladders.** Prefer a `switch` (including a type switch) to a long
+  `if` / `else if` chain.
+- **Co-location.** A self-contained unit lives entirely in its own file — its
+  config, state, behaviour, and rendering together. Its only references from
+  elsewhere are where it is wired in at the composition root. Removing it means
+  deleting its file and that one line of wiring — nothing scattered across the
+  project.
+- **Table-driven tests.** Express tests as a table of input → expected cases
+  iterated in a loop, not as repeated near-identical assertions.
 
 ## Architecture principles
-
-> TODO looking at my code, are there any other architectural choices which stand out and could be solidified here?
 
 - **The Elm Architecture (Bubble Tea).** State lives in models, transitions
   happen in `Update`, side effects are expressed as `Cmd`s. Never block and
@@ -46,10 +46,16 @@ never describe product functionality or per-feature behaviour. Keep it that way.
   calling one another.
 - **No import cycles.** Widgets never import the `tui` package; they satisfy the
   loader's interface structurally.
+- **Capability interfaces, not fat ones.** A unit implements a small core
+  interface and opts into extra behaviour only by satisfying additional, single-
+  purpose interfaces that the composition root detects with a type assertion
+  (`Mode`, plus optional `StrongMatcher`, `RowDeleter`, `Selectable`). New
+  capabilities never widen the core interface.
+- **Declarative, decentralized config.** Each unit owns its config struct,
+  defaults, and section name; one generic, unit-agnostic loader overlays the
+  on-disk file. Adding or changing config never touches the loader.
 
 ## Operational principles
-
-> Can any of these last few sections be cleaned up or trimmed down? Anything that isn't completely needed as coding guidelines can probably be cleaned up
 
 - Build and run with cgo disabled for a static, dependency-free binary:
   `CGO_ENABLED=0 go build`.
