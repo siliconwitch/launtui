@@ -71,11 +71,11 @@ func TestWebRecall(t *testing.T) {
 		{4, "", false},
 	}
 
-	for _, c := range cases {
-		text, ok := web.RecallText(c.index)
+	for _, testCase := range cases {
+		text, ok := web.RecallText(testCase.index)
 
-		if text != c.text || ok != c.ok {
-			t.Errorf("RecallText(%d) = (%q, %v), want (%q, %v)", c.index, text, ok, c.text, c.ok)
+		if text != testCase.text || ok != testCase.ok {
+			t.Errorf("RecallText(%d) = (%q, %v), want (%q, %v)", testCase.index, text, ok, testCase.text, testCase.ok)
 		}
 	}
 }

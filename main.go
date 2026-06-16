@@ -12,6 +12,13 @@ import (
 )
 
 func main() {
+	// -record is internal: the clipboard watcher re-invokes launtui as
+	// `launtui -record` once per clipboard change and pipes the new contents to
+	// its stdin (see WatchClipboard). It is never typed by a user, so it is
+	// matched here directly and left unregistered as a flag — keeping it out of
+	// -help, which also means flag parsing must be skipped for it.
+	record := len(os.Args) == 2 && os.Args[1] == "-record"
+
 	modeFlags := []struct {
 		letter string
 		name   string
@@ -33,21 +40,23 @@ func main() {
 
 	watch := flag.Bool("watch", false, "watch the clipboard and record history")
 
-	flag.Parse()
+	if !record {
+		flag.Parse()
+	}
 
-	if *watch {
-		cfg := widgets.DefaultClipboardConfig()
+	if record || *watch {
+		clipboardConfig := widgets.DefaultClipboardConfig()
 
-		if err := tui.LoadConfig(&cfg); err != nil {
+		if err := tui.LoadConfig(&clipboardConfig); err != nil {
 			fmt.Fprintln(os.Stderr, "launtui: config:", err)
 		}
 
 		var err error
 
-		if *watch {
-			err = widgets.WatchClipboard(cfg)
+		if record {
+			err = widgets.RecordClipboardStdin(clipboardConfig)
 		} else {
-			err = widgets.RecordClipboardStdin(cfg)
+			err = widgets.WatchClipboard(clipboardConfig)
 		}
 
 		if err != nil {

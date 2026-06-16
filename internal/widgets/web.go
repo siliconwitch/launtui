@@ -41,22 +41,22 @@ type webVisit struct {
 type webHistoryMsg []webVisit
 
 type Web struct {
-	cfg     WebConfig
+	config  WebConfig
 	query   string
 	actions []webAction
 	history []webVisit
 }
 
-func NewWeb(cfg WebConfig) Web {
-	return Web{cfg: cfg}
+func NewWeb(config WebConfig) Web {
+	return Web{config: config}
 }
 
 func (Web) Name() string    { return "Web" }
 func (Web) Hotkey() string  { return "ctrl+s" }
-func (w Web) Enabled() bool { return w.cfg.Enabled }
+func (w Web) Enabled() bool { return w.config.Enabled }
 
 func (w Web) Init() tea.Cmd {
-	if !w.cfg.Enabled {
+	if !w.config.Enabled {
 		return nil
 	}
 
@@ -120,7 +120,7 @@ func (w Web) SetQuery(query string) Mode {
 		w.actions = append(w.actions, webAction{label: "Open " + address, url: address})
 	}
 
-	search := strings.ReplaceAll(w.cfg.SearchURL, "%s", url.QueryEscape(w.query))
+	search := strings.ReplaceAll(w.config.SearchURL, "%s", url.QueryEscape(w.query))
 	w.actions = append(w.actions, webAction{label: "Search the web for “" + w.query + "”", url: search})
 
 	return w
@@ -172,14 +172,14 @@ func (w Web) Activate(index int) tea.Cmd {
 	if index < len(w.actions) {
 		action := w.actions[index]
 		visit = webVisit{Label: action.label, URL: action.url, Query: w.query, Time: time.Now().Unix()}
-	} else if history := index - len(w.actions); history >= 0 && history < len(w.history) {
+	} else if history := index - len(w.actions); history < len(w.history) {
 		visit = w.history[history]
 		visit.Time = time.Now().Unix()
 	} else {
 		return nil
 	}
 
-	limit := w.cfg.MaxHistory
+	limit := w.config.MaxHistory
 
 	return func() tea.Msg {
 		spawnDetached("", "xdg-open", visit.URL)

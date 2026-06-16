@@ -31,16 +31,16 @@ type clockZone struct {
 }
 
 type Clock struct {
-	cfg     ClockConfig
+	config  ClockConfig
 	now     time.Time
 	zones   []clockZone
 	current int
 }
 
-func NewClock(cfg ClockConfig) Clock {
+func NewClock(config ClockConfig) Clock {
 	zones := []clockZone{{location: time.Local}}
 
-	for _, entry := range cfg.Zones {
+	for _, entry := range config.Zones {
 		trimmed := strings.TrimSpace(entry)
 		name := trimmed
 		label := ""
@@ -69,10 +69,8 @@ func NewClock(cfg ClockConfig) Clock {
 		zones = append(zones, clockZone{location: location, label: label})
 	}
 
-	return Clock{cfg: cfg, now: time.Now(), zones: zones}
+	return Clock{config: config, now: time.Now(), zones: zones}
 }
-
-func (c Clock) Enabled() bool { return c.cfg.Enabled }
 
 func (c Clock) NextZone() Clock {
 	if len(c.zones) > 1 {
@@ -83,7 +81,7 @@ func (c Clock) NextZone() Clock {
 }
 
 func (c Clock) Init() tea.Cmd {
-	if !c.cfg.Enabled {
+	if !c.config.Enabled {
 		return nil
 	}
 
@@ -103,12 +101,12 @@ func (c Clock) Update(msg tea.Msg) (Clock, tea.Cmd) {
 }
 
 func (c Clock) View() string {
-	if !c.cfg.Enabled {
+	if !c.config.Enabled {
 		return ""
 	}
 
 	zone := c.zones[c.current]
-	text := c.now.In(zone.location).Format(c.cfg.Format)
+	text := c.now.In(zone.location).Format(c.config.Format)
 
 	if c.current != 0 {
 		text += " (" + zone.label + ")"

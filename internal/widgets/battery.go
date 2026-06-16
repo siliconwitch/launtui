@@ -40,23 +40,21 @@ type batteryReading struct {
 type batteryMsg batteryReading
 
 type Battery struct {
-	cfg     BatteryConfig
+	config  BatteryConfig
 	reading batteryReading
 }
 
-func NewBattery(cfg BatteryConfig) Battery {
-	return Battery{cfg: cfg}
+func NewBattery(config BatteryConfig) Battery {
+	return Battery{config: config}
 }
 
-func (b Battery) Enabled() bool { return b.cfg.Enabled }
-
 func (b Battery) Init() tea.Cmd {
-	if !b.cfg.Enabled {
+	if !b.config.Enabled {
 		return nil
 	}
 
 	return func() tea.Msg {
-		return batteryMsg(readBattery(b.cfg.Device))
+		return batteryMsg(readBattery(b.config.Device))
 	}
 }
 
@@ -70,12 +68,12 @@ func (b Battery) Update(msg tea.Msg) (Battery, tea.Cmd) {
 	b.reading = batteryReading(reading)
 
 	return b, tea.Tick(batteryInterval, func(time.Time) tea.Msg {
-		return batteryMsg(readBattery(b.cfg.Device))
+		return batteryMsg(readBattery(b.config.Device))
 	})
 }
 
 func (b Battery) View() string {
-	if !b.cfg.Enabled || !b.reading.present {
+	if !b.config.Enabled || !b.reading.present {
 		return ""
 	}
 
@@ -109,10 +107,12 @@ func (b Battery) View() string {
 		" " + batteryInfoStyle.Render(icon)
 
 	if reading.hours > 0 {
-		duration := strconv.Itoa(int(math.Round(reading.hours*60))) + "m"
+		var duration string
 
 		if reading.hours > 1.5 {
 			duration = strings.TrimSuffix(strconv.FormatFloat(reading.hours, 'f', 1, 64), ".0") + "h"
+		} else {
+			duration = strconv.Itoa(int(math.Round(reading.hours*60))) + "m"
 		}
 
 		line += " " + batteryInfoStyle.Render(duration)

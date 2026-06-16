@@ -22,7 +22,7 @@ func writeBattery(t *testing.T, files map[string]string) string {
 }
 
 func batteryView(reading batteryReading) string {
-	return Battery{cfg: BatteryConfig{Enabled: true}, reading: reading}.View()
+	return Battery{config: BatteryConfig{Enabled: true}, reading: reading}.View()
 }
 
 func TestReadBatteryEnergyDischarging(t *testing.T) {

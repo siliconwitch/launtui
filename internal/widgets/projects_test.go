@@ -27,11 +27,11 @@ func TestProjectsLoadsDirsAndProjects(t *testing.T) {
 	mkdir("work", "alpha")
 	mkdir("company")
 
-	cfg := DefaultProjectsConfig()
-	cfg.Dirs = []string{filepath.Join(root, "projects"), filepath.Join(root, "work")}
-	cfg.Projects = []string{filepath.Join(root, "company")}
+	config := DefaultProjectsConfig()
+	config.Dirs = []string{filepath.Join(root, "projects"), filepath.Join(root, "work")}
+	config.Projects = []string{filepath.Join(root, "company")}
 
-	loaded, ok := NewProjects(cfg).Init()().(projectsLoadedMsg)
+	loaded, ok := NewProjects(config).Init()().(projectsLoadedMsg)
 
 	if !ok {
 		t.Fatal("Init should return a projectsLoadedMsg")

@@ -28,20 +28,20 @@ var clipboardAccent = lipgloss.Color("6")
 type clipboardHistoryMsg []clipboardEntry
 
 type Clipboard struct {
-	cfg  ClipboardConfig
-	list list[clipboardEntry]
+	config ClipboardConfig
+	list   list[clipboardEntry]
 }
 
-func NewClipboard(cfg ClipboardConfig) Clipboard {
-	return Clipboard{cfg: cfg, list: newList(func(entry clipboardEntry) string { return clipboardPreview(entry.Text) })}
+func NewClipboard(config ClipboardConfig) Clipboard {
+	return Clipboard{config: config, list: newList(func(entry clipboardEntry) string { return clipboardPreview(entry.Text) })}
 }
 
 func (Clipboard) Name() string    { return "Clip" }
 func (Clipboard) Hotkey() string  { return "ctrl+v" }
-func (c Clipboard) Enabled() bool { return c.cfg.Enabled }
+func (c Clipboard) Enabled() bool { return c.config.Enabled }
 
 func (c Clipboard) Init() tea.Cmd {
-	if !c.cfg.Enabled {
+	if !c.config.Enabled {
 		return nil
 	}
 
@@ -150,7 +150,7 @@ func (c Clipboard) Activate(index int) tea.Cmd {
 		return nil
 	}
 
-	limit := c.cfg.MaxHistory
+	limit := c.config.MaxHistory
 
 	return func() tea.Msg {
 		copyToClipboard(entry.Text)
@@ -160,8 +160,8 @@ func (c Clipboard) Activate(index int) tea.Cmd {
 	}
 }
 
-func WatchClipboard(cfg ClipboardConfig) error {
-	if !cfg.Enabled {
+func WatchClipboard(config ClipboardConfig) error {
+	if !config.Enabled {
 		return errors.New("clipboard mode is disabled in config")
 	}
 
@@ -174,10 +174,10 @@ func WatchClipboard(cfg ClipboardConfig) error {
 	wlPaste, err := exec.LookPath("wl-paste")
 
 	if err == nil {
-		cmd := exec.Command(wlPaste, "--type", "text", "--no-newline", "--watch", self, "-record")
-		cmd.Stderr = os.Stderr
+		command := exec.Command(wlPaste, "--type", "text", "--no-newline", "--watch", self, "-record")
+		command.Stderr = os.Stderr
 
-		return cmd.Run()
+		return command.Run()
 	}
 
 	last := ""
@@ -187,15 +187,15 @@ func WatchClipboard(cfg ClipboardConfig) error {
 
 		if strings.TrimSpace(text) != "" && text != last {
 			last = text
-			recordClipboardText(text, cfg.MaxHistory)
+			recordClipboardText(text, config.MaxHistory)
 		}
 
 		time.Sleep(time.Second)
 	}
 }
 
-func RecordClipboardStdin(cfg ClipboardConfig) error {
-	if !cfg.Enabled {
+func RecordClipboardStdin(config ClipboardConfig) error {
+	if !config.Enabled {
 		return nil
 	}
 
@@ -213,7 +213,7 @@ func RecordClipboardStdin(cfg ClipboardConfig) error {
 		return err
 	}
 
-	recordClipboardText(string(data), cfg.MaxHistory)
+	recordClipboardText(string(data), config.MaxHistory)
 
 	return nil
 }

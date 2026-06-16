@@ -104,51 +104,51 @@ func RenderResults(status string, rows []Row, accent lipgloss.Color, cursor, wid
 }
 
 func renderRow(accent lipgloss.Color, selected bool, row Row, width int) string {
-	avail := max(width-2, 1)
+	availableWidth := max(width-2, 1)
 	name := row.left
-	sub := ""
+	rightColumn := ""
 
-	if lipgloss.Width(name) > avail {
-		name = truncate(name, avail)
+	if lipgloss.Width(name) > availableWidth {
+		name = truncate(name, availableWidth)
 	} else if row.right != "" {
-		gap := avail - lipgloss.Width(name)
+		gap := availableWidth - lipgloss.Width(name)
 
 		if gap > 2 {
 			right := truncate(row.right, gap-1)
-			sub = strings.Repeat(" ", gap-lipgloss.Width(right)) + right
+			rightColumn = strings.Repeat(" ", gap-lipgloss.Width(right)) + right
 		}
 	}
 
 	if selected {
 		accentStyle := lipgloss.NewStyle().Foreground(accent)
 
-		return accentStyle.Render("▌ ") + accentStyle.Bold(true).Render(name) + sub
+		return accentStyle.Render("▌ ") + accentStyle.Bold(true).Render(name) + rightColumn
 	}
 
 	switch row.style {
 	case rowDim:
-		return "  " + subtleStyle.Render(name) + sub
+		return "  " + subtleStyle.Render(name) + rightColumn
 	case rowEmphasized:
-		return "  " + lipgloss.NewStyle().Foreground(accent).Bold(true).Render(name) + sub
+		return "  " + lipgloss.NewStyle().Foreground(accent).Bold(true).Render(name) + rightColumn
 	default:
-		return "  " + name + sub
+		return "  " + name + rightColumn
 	}
 }
 
-func truncate(s string, w int) string {
-	if w <= 0 {
+func truncate(text string, width int) string {
+	if width <= 0 {
 		return ""
 	}
 
-	if lipgloss.Width(s) <= w {
-		return s
+	if lipgloss.Width(text) <= width {
+		return text
 	}
 
-	if w == 1 {
+	if width == 1 {
 		return "…"
 	}
 
-	return ansi.Truncate(s, w-1, "") + "…"
+	return ansi.Truncate(text, width-1, "") + "…"
 }
 
 func relativeAge(elapsed int64) string {
@@ -279,10 +279,10 @@ func copyToClipboard(text string) {
 			continue
 		}
 
-		cmd := exec.Command(path, tool[1:]...)
-		cmd.Stdin = strings.NewReader(text)
+		command := exec.Command(path, tool[1:]...)
+		command.Stdin = strings.NewReader(text)
 
-		if cmd.Run() == nil {
+		if command.Run() == nil {
 			return
 		}
 	}
@@ -341,14 +341,22 @@ func recordClipboardText(text string, limit int) []clipboardEntry {
 		return loadClipboardHistory()
 	}
 
+	suppressed := false
+
 	if path, err := launtuiCachePath(suppressionFile); err == nil {
-		if suppression, ok := loadJSON[clipboardSuppression](path); ok {
-			if time.Now().Unix() > suppression.Expires {
-				_ = os.Remove(path)
-			} else if saltedHash(suppression.Salt, text) == suppression.Hash {
-				return loadClipboardHistory()
-			}
+		suppression, ok := loadJSON[clipboardSuppression](path)
+
+		switch {
+		case !ok:
+		case time.Now().Unix() > suppression.Expires:
+			_ = os.Remove(path)
+		case saltedHash(suppression.Salt, text) == suppression.Hash:
+			suppressed = true
 		}
+	}
+
+	if suppressed {
+		return loadClipboardHistory()
 	}
 
 	entry := clipboardEntry{Text: text, Time: time.Now().Unix()}
@@ -527,11 +535,11 @@ func spawnDetached(dir string, argv ...string) {
 		return
 	}
 
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Dir = dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	command := exec.Command(argv[0], argv[1:]...)
+	command.Dir = dir
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
-	_ = cmd.Start()
+	_ = command.Start()
 }
 
 func resolveTerminal(configured string) string {
@@ -555,21 +563,21 @@ func resolveTerminal(configured string) string {
 	return ""
 }
 
-func terminalArgv(terminal, cmdline string) []string {
+func terminalArgv(terminal, commandLine string) []string {
 	if terminal == "" {
-		return []string{"sh", "-c", cmdline}
+		return []string{"sh", "-c", commandLine}
 	}
 
 	switch filepath.Base(terminal) {
 	case "foot", "kitty":
-		return []string{terminal, "sh", "-c", cmdline}
+		return []string{terminal, "sh", "-c", commandLine}
 	case "wezterm":
-		return []string{terminal, "start", "--", "sh", "-c", cmdline}
+		return []string{terminal, "start", "--", "sh", "-c", commandLine}
 	case "gnome-terminal":
-		return []string{terminal, "--", "sh", "-c", cmdline}
+		return []string{terminal, "--", "sh", "-c", commandLine}
 	case "xfce4-terminal":
-		return []string{terminal, "-x", "sh", "-c", cmdline}
+		return []string{terminal, "-x", "sh", "-c", commandLine}
 	default:
-		return []string{terminal, "-e", "sh", "-c", cmdline}
+		return []string{terminal, "-e", "sh", "-c", commandLine}
 	}
 }

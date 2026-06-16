@@ -7,10 +7,10 @@ import (
 )
 
 func TestRunExcludesApps(t *testing.T) {
-	cfg := DefaultRunConfig()
-	cfg.Exclude = []string{"firefox", "  Slack  "}
+	config := DefaultRunConfig()
+	config.Exclude = []string{"firefox", "  Slack  "}
 
-	run := NewRun(cfg)
+	run := NewRun(config)
 
 	updated, _ := run.Update(appsLoadedMsg{
 		{Name: "Firefox", Exec: "firefox"},
@@ -34,10 +34,10 @@ func TestRunCommentToggle(t *testing.T) {
 		t.Fatal("comment should be shown by default")
 	}
 
-	cfg := DefaultRunConfig()
-	cfg.Comment = false
+	config := DefaultRunConfig()
+	config.Comment = false
 
-	hidden, _ := NewRun(cfg).Update(apps)
+	hidden, _ := NewRun(config).Update(apps)
 
 	if right := hidden.(Run).Rows()[0].right; right != "" {
 		t.Fatalf("comment should be hidden when disabled, got %q", right)

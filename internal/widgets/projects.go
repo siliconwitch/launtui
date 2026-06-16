@@ -73,28 +73,28 @@ type projectsTickMsg struct{}
 type editorMissingMsg struct{}
 
 type Projects struct {
-	cfg       ProjectsConfig
+	config    ProjectsConfig
 	list      list[project]
 	pending   int
 	frame     int
 	errorText string
 }
 
-func NewProjects(cfg ProjectsConfig) Projects {
-	return Projects{cfg: cfg, list: newList(func(item project) string { return item.name })}
+func NewProjects(config ProjectsConfig) Projects {
+	return Projects{config: config, list: newList(func(item project) string { return item.name })}
 }
 
 func (Projects) Name() string    { return "Proj" }
 func (Projects) Hotkey() string  { return "ctrl+o" }
-func (p Projects) Enabled() bool { return p.cfg.Enabled }
+func (p Projects) Enabled() bool { return p.config.Enabled }
 
 func (p Projects) Init() tea.Cmd {
-	if !p.cfg.Enabled {
+	if !p.config.Enabled {
 		return nil
 	}
 
-	dirs := p.cfg.Dirs
-	singles := p.cfg.Projects
+	dirs := p.config.Dirs
+	singles := p.config.Projects
 
 	return func() tea.Msg {
 		var projects []project
@@ -373,7 +373,7 @@ func (p Projects) Activate(index int) tea.Cmd {
 		return nil
 	}
 
-	editor := p.cfg.Editor
+	editor := p.config.Editor
 
 	if editor == "" {
 		editor = os.Getenv("VISUAL")
@@ -389,11 +389,15 @@ func (p Projects) Activate(index int) tea.Cmd {
 		}
 	}
 
-	terminal := p.cfg.Terminal
-	editorTerminal := p.cfg.EditorTerminal
+	terminal := p.config.Terminal
+	editorTerminal := p.config.EditorTerminal
 
 	return func() tea.Msg {
 		argv := strings.Fields(editor)
+
+		if len(argv) == 0 {
+			return editorMissingMsg{}
+		}
 
 		if directoryCapableEditors[filepath.Base(argv[0])] {
 			argv = append(argv, ".")

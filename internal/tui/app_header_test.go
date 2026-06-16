@@ -24,13 +24,13 @@ func dividerRow(view string) int {
 
 func TestHeaderStaysTwoRowsWithFilledInput(t *testing.T) {
 	dir := t.TempDir()
-	cfg := filepath.Join(dir, "config.toml")
+	configPath := filepath.Join(dir, "config.toml")
 
-	if err := os.WriteFile(cfg, []byte("[clock]\nzones = [\"San Francisco\"]\n"), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("[clock]\nzones = [\"San Francisco\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Setenv("LAUNTUI_CONFIG", cfg)
+	t.Setenv("LAUNTUI_CONFIG", configPath)
 
 	for _, width := range []int{70, 80, 100} {
 		app, err := New("")

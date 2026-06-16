@@ -172,22 +172,21 @@ func TestCursorNavigatesAndResets(t *testing.T) {
 		t.Fatalf("expected Web mode for a URL, got %q", name)
 	}
 
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
-
-	if cursor := model.(App).cursor; cursor != 1 {
-		t.Fatalf("cursor after down = %d, want 1", cursor)
+	steps := []struct {
+		key        tea.KeyType
+		wantCursor int
+	}{
+		{tea.KeyDown, 1},
+		{tea.KeyDown, 1},
+		{tea.KeyUp, 0},
 	}
 
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	for i, step := range steps {
+		model, _ = model.Update(tea.KeyMsg{Type: step.key})
 
-	if cursor := model.(App).cursor; cursor != 1 {
-		t.Fatalf("cursor should clamp at the last row, got %d", cursor)
-	}
-
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
-
-	if cursor := model.(App).cursor; cursor != 0 {
-		t.Fatalf("cursor after up = %d, want 0", cursor)
+		if cursor := model.(App).cursor; cursor != step.wantCursor {
+			t.Fatalf("step %d: cursor = %d, want %d", i, cursor, step.wantCursor)
+		}
 	}
 
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})

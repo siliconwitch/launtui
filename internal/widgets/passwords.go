@@ -40,16 +40,16 @@ type passwordUsernameMsg struct {
 }
 
 type Passwords struct {
-	cfg       PasswordsConfig
+	config    PasswordsConfig
 	list      list[string]
 	usernames map[string]string
 	selected  string
 	errorText string
 }
 
-func NewPasswords(cfg PasswordsConfig) Passwords {
+func NewPasswords(config PasswordsConfig) Passwords {
 	return Passwords{
-		cfg:       cfg,
+		config:    config,
 		list:      newList(func(entry string) string { return entry }),
 		usernames: map[string]string{},
 	}
@@ -57,23 +57,23 @@ func NewPasswords(cfg PasswordsConfig) Passwords {
 
 func (Passwords) Name() string    { return "Pass" }
 func (Passwords) Hotkey() string  { return "ctrl+p" }
-func (p Passwords) Enabled() bool { return p.cfg.Enabled }
+func (p Passwords) Enabled() bool { return p.config.Enabled }
 
 func (p Passwords) Init() tea.Cmd {
-	if !p.cfg.Enabled {
+	if !p.config.Enabled {
 		return nil
 	}
 
-	store := p.cfg.Store
+	store := p.config.Store
 
 	return func() tea.Msg {
-		cmd := exec.Command("pass", "ls")
+		command := exec.Command("pass", "ls")
 
 		if store != "" {
-			cmd.Env = append(os.Environ(), "PASSWORD_STORE_DIR="+expandHome(store))
+			command.Env = append(os.Environ(), "PASSWORD_STORE_DIR="+expandHome(store))
 		}
 
-		output, err := cmd.Output()
+		output, err := command.Output()
 
 		if err != nil {
 			return passwordEntriesMsg(nil)
@@ -245,17 +245,17 @@ func (p Passwords) Select(index int) (Mode, tea.Cmd) {
 		return p, nil
 	}
 
-	store := p.cfg.Store
+	store := p.config.Store
 
 	return p, func() tea.Msg {
-		cmd := exec.Command("pass", "show", entry)
-		cmd.Env = append(os.Environ(), "PASSWORD_STORE_GPG_OPTS=--pinentry-mode cancel")
+		command := exec.Command("pass", "show", entry)
+		command.Env = append(os.Environ(), "PASSWORD_STORE_GPG_OPTS=--pinentry-mode cancel")
 
 		if store != "" {
-			cmd.Env = append(cmd.Env, "PASSWORD_STORE_DIR="+expandHome(store))
+			command.Env = append(command.Env, "PASSWORD_STORE_DIR="+expandHome(store))
 		}
 
-		output, err := cmd.Output()
+		output, err := command.Output()
 
 		if err != nil {
 			return nil
@@ -278,10 +278,10 @@ func (p Passwords) Activate(index int) tea.Cmd {
 		return nil
 	}
 
-	cmd := exec.Command("pass", "show", entry)
+	command := exec.Command("pass", "show", entry)
 
 	var output bytes.Buffer
-	cmd.Stdout = &output
+	command.Stdout = &output
 
 	if os.Getenv("GPG_TTY") == "" {
 		tty, err := os.Readlink("/proc/self/fd/0")
@@ -290,10 +290,10 @@ func (p Passwords) Activate(index int) tea.Cmd {
 			tty = "/dev/tty"
 		}
 
-		cmd.Env = append(os.Environ(), "GPG_TTY="+tty)
+		command.Env = append(os.Environ(), "GPG_TTY="+tty)
 	}
 
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+	return tea.ExecProcess(command, func(err error) tea.Msg {
 		return passwordShownMsg{output: output.String(), err: err}
 	})
 }

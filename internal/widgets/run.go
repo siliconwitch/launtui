@@ -39,20 +39,20 @@ type desktopApp struct {
 type appsLoadedMsg []desktopApp
 
 type Run struct {
-	cfg  RunConfig
-	list list[desktopApp]
+	config RunConfig
+	list   list[desktopApp]
 }
 
-func NewRun(cfg RunConfig) Run {
-	return Run{cfg: cfg, list: newList(func(app desktopApp) string { return app.Name })}
+func NewRun(config RunConfig) Run {
+	return Run{config: config, list: newList(func(app desktopApp) string { return app.Name })}
 }
 
 func (Run) Name() string    { return "Run" }
 func (Run) Hotkey() string  { return "ctrl+r" }
-func (r Run) Enabled() bool { return r.cfg.Enabled }
+func (r Run) Enabled() bool { return r.config.Enabled }
 
 func (r Run) Init() tea.Cmd {
-	if !r.cfg.Enabled {
+	if !r.config.Enabled {
 		return nil
 	}
 
@@ -124,15 +124,15 @@ func (r Run) Update(msg tea.Msg) (Mode, tea.Cmd) {
 		return r, nil
 	}
 
-	if len(r.cfg.Exclude) == 0 {
+	if len(r.config.Exclude) == 0 {
 		r.list.setItems(loaded)
 
 		return r, nil
 	}
 
-	excluded := make(map[string]bool, len(r.cfg.Exclude))
+	excluded := make(map[string]bool, len(r.config.Exclude))
 
-	for _, name := range r.cfg.Exclude {
+	for _, name := range r.config.Exclude {
 		excluded[strings.ToLower(strings.TrimSpace(name))] = true
 	}
 
@@ -172,7 +172,7 @@ func (r Run) Rows() []Row {
 	return r.list.rows(func(app desktopApp) Row {
 		right := ""
 
-		if r.cfg.Comment && app.Comment != "" {
+		if r.config.Comment && app.Comment != "" {
 			right = subtleStyle.Render(app.Comment)
 		}
 
@@ -188,14 +188,14 @@ func (r Run) Activate(index int) tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		cmdline := strings.TrimSpace(app.Exec)
+		commandLine := strings.TrimSpace(app.Exec)
 
-		argv := []string{"sh", "-c", cmdline}
+		argv := []string{"sh", "-c", commandLine}
 
-		if cmdline == "" {
+		if commandLine == "" {
 			argv = nil
 		} else if app.Terminal {
-			argv = terminalArgv(resolveTerminal(r.cfg.Terminal), cmdline)
+			argv = terminalArgv(resolveTerminal(r.config.Terminal), commandLine)
 		}
 
 		spawnDetached(app.WorkingDir, argv...)

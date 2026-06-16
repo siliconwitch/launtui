@@ -179,10 +179,10 @@ func TestCompletedCalculation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	history, _ := loadJSON[[]calculation](path)
+	history, ok := loadJSON[[]calculation](path)
 
-	if len(history) != 1 || history[0].Expression != "4+5" || history[0].Answer != "9" {
-		t.Fatalf("recorded history = %+v", history)
+	if !ok || len(history) != 1 || history[0].Expression != "4+5" || history[0].Answer != "9" {
+		t.Fatalf("recorded history = %+v (ok=%v)", history, ok)
 	}
 
 	duplicate := sum
@@ -259,11 +259,11 @@ func TestCalculatorRecall(t *testing.T) {
 		{3, "", false},
 	}
 
-	for _, c := range cases {
-		text, ok := withLive.RecallText(c.index)
+	for _, testCase := range cases {
+		text, ok := withLive.RecallText(testCase.index)
 
-		if text != c.text || ok != c.ok {
-			t.Errorf("RecallText(%d) = (%q, %v), want (%q, %v)", c.index, text, ok, c.text, c.ok)
+		if text != testCase.text || ok != testCase.ok {
+			t.Errorf("RecallText(%d) = (%q, %v), want (%q, %v)", testCase.index, text, ok, testCase.text, testCase.ok)
 		}
 	}
 
@@ -304,32 +304,6 @@ func TestCalculatorDeleteHistory(t *testing.T) {
 
 	if len(cleared.(Calculator).history) != 0 || clearCmd == nil {
 		t.Fatalf("history after clear = %+v", cleared.(Calculator).history)
-	}
-}
-
-func TestCalculatorRecordsHistoryOnClose(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-
-	calculator := NewCalculator(DefaultCalculatorConfig()).SetQuery("4+5").(Calculator)
-
-	_, cmd := calculator.Update(AppClosingMsg{})
-
-	if cmd == nil {
-		t.Fatal("expected a persist command on close")
-	}
-
-	cmd()
-
-	path, err := launtuiDataPath(calculatorHistoryFile)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	history, ok := loadJSON[[]calculation](path)
-
-	if !ok || len(history) != 1 || history[0].Expression != "4+5" || history[0].Answer != "9" {
-		t.Fatalf("recorded history = %+v (ok=%v)", history, ok)
 	}
 }
 

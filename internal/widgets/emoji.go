@@ -27,11 +27,11 @@ type emojiEntry struct {
 }
 
 type Emoji struct {
-	cfg  EmojiConfig
-	list list[emojiEntry]
+	config EmojiConfig
+	list   list[emojiEntry]
 }
 
-func NewEmoji(cfg EmojiConfig) Emoji {
+func NewEmoji(config EmojiConfig) Emoji {
 	catalogue := emoji.Map()
 	entries := make([]emojiEntry, 0, len(catalogue))
 
@@ -42,7 +42,7 @@ func NewEmoji(cfg EmojiConfig) Emoji {
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
 
-	mode := Emoji{cfg: cfg, list: newList(func(entry emojiEntry) string { return entry.name })}
+	mode := Emoji{config: config, list: newList(func(entry emojiEntry) string { return entry.name })}
 	mode.list.setItems(entries)
 
 	return mode
@@ -50,7 +50,7 @@ func NewEmoji(cfg EmojiConfig) Emoji {
 
 func (Emoji) Name() string    { return "Emoji" }
 func (Emoji) Hotkey() string  { return "ctrl+e" }
-func (e Emoji) Enabled() bool { return e.cfg.Enabled }
+func (e Emoji) Enabled() bool { return e.config.Enabled }
 
 func (Emoji) Init() tea.Cmd { return nil }
 

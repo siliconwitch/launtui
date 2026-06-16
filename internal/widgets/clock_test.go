@@ -8,10 +8,10 @@ import (
 )
 
 func TestClockZoneCycle(t *testing.T) {
-	cfg := DefaultClockConfig()
-	cfg.Zones = []string{"Europe/London", "America/Los_Angeles", "bogus/zone"}
+	config := DefaultClockConfig()
+	config.Zones = []string{"Europe/London", "America/Los_Angeles", "bogus/zone"}
 
-	clock := NewClock(cfg)
+	clock := NewClock(config)
 
 	if len(clock.zones) != 3 {
 		t.Fatalf("zones = %d, want 3 (local + 2 valid, bogus dropped)", len(clock.zones))
@@ -43,10 +43,10 @@ func TestClockZoneCycle(t *testing.T) {
 }
 
 func TestClockCityNames(t *testing.T) {
-	cfg := DefaultClockConfig()
-	cfg.Zones = []string{"San Francisco", "tokyo"}
+	config := DefaultClockConfig()
+	config.Zones = []string{"San Francisco", "tokyo"}
 
-	clock := NewClock(cfg)
+	clock := NewClock(config)
 
 	if len(clock.zones) != 3 {
 		t.Fatalf("zones = %d, want 3 (local + 2 cities)", len(clock.zones))

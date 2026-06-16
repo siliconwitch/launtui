@@ -99,22 +99,22 @@ func New(startHotkey string) (App, error) {
 	}
 
 	bindings := []widgets.HelpBinding{
-		{Keys: "type", Desc: "filter the list"},
-		{Keys: "↑ / ↓", Desc: "move selection"},
-		{Keys: "enter", Desc: "activate selection"},
-		{Keys: "esc", Desc: "quit"},
-		{Keys: "tab / shift+tab", Desc: "next / previous mode"},
-		{Keys: "del", Desc: "delete the selected history entry"},
-		{Keys: "alt+del", Desc: "clear the mode's history"},
+		{Keys: "type", Description: "filter the list"},
+		{Keys: "↑ / ↓", Description: "move selection"},
+		{Keys: "enter", Description: "activate selection"},
+		{Keys: "esc", Description: "quit"},
+		{Keys: "tab / shift+tab", Description: "next / previous mode"},
+		{Keys: "del", Description: "delete the selected history entry"},
+		{Keys: "alt+del", Description: "clear the mode's history"},
 	}
 
 	if len(clockConfig.Zones) > 0 {
-		bindings = append(bindings, widgets.HelpBinding{Keys: "ctrl+t", Desc: "switch time zone"})
+		bindings = append(bindings, widgets.HelpBinding{Keys: "ctrl+t", Description: "switch time zone"})
 	}
 
 	for _, mode := range app.modes {
 		if mode.Enabled() {
-			bindings = append(bindings, widgets.HelpBinding{Keys: mode.Hotkey(), Desc: mode.Name() + " mode"})
+			bindings = append(bindings, widgets.HelpBinding{Keys: mode.Hotkey(), Description: mode.Name() + " mode"})
 		}
 	}
 
@@ -216,13 +216,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, a.modes[a.current].Activate(a.cursor)
 
 		case "delete":
-			rows := a.modes[a.current].Rows()
+			if deleter, ok := a.modes[a.current].(widgets.RowDeleter); ok {
+				rows := a.modes[a.current].Rows()
 
-			if deleter, ok := a.modes[a.current].(widgets.RowDeleter); ok && a.cursor < len(rows) && rows[a.cursor].Deletable {
-				a.modes[a.current], cmd = deleter.DeleteRow(a.cursor)
-				a.clampCursor()
+				if a.cursor < len(rows) && rows[a.cursor].Deletable {
+					a.modes[a.current], cmd = deleter.DeleteRow(a.cursor)
+					a.clampCursor()
 
-				return a, cmd
+					return a, cmd
+				}
 			}
 
 			return a, nil
@@ -537,18 +539,18 @@ func LoadConfig(targets ...Section) error {
 	path := os.Getenv("LAUNTUI_CONFIG")
 
 	if path == "" {
-		dir, err := os.UserConfigDir()
+		configDir, err := os.UserConfigDir()
 
 		if err != nil {
 			return err
 		}
 
-		path = filepath.Join(dir, "launtui", "config.toml")
+		path = filepath.Join(configDir, "launtui", "config.toml")
 	}
 
 	var raw map[string]toml.Primitive
 
-	md, err := toml.DecodeFile(path, &raw)
+	metadata, err := toml.DecodeFile(path, &raw)
 
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -558,15 +560,15 @@ func LoadConfig(targets ...Section) error {
 		return fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	for _, t := range targets {
-		prim, ok := raw[t.SectionName()]
+	for _, target := range targets {
+		primitive, ok := raw[target.SectionName()]
 
 		if !ok {
 			continue
 		}
 
-		if err := md.PrimitiveDecode(prim, t); err != nil {
-			return fmt.Errorf("config section [%s]: %w", t.SectionName(), err)
+		if err := metadata.PrimitiveDecode(primitive, target); err != nil {
+			return fmt.Errorf("config section [%s]: %w", target.SectionName(), err)
 		}
 	}
 

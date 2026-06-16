@@ -10,14 +10,19 @@ General and meant to be reused verbatim across projects.
 
 - **Complete names.** Use descriptive, whole-word names for non-trivial
   variables (`tuiWidth`, not `boxW`). Short names are acceptable only for
-  receivers, loop indices, `err`, and `ok`.
+  receivers, loop indices, `err`, `ok`, and a framework's own idiomatic short
+  names — `cmd` for a `tea.Cmd`, `msg` for a `tea.Msg`. Keep those reserved for
+  that exact type: a command that is not a `tea.Cmd` is `command`, not `cmd`.
 - **Breathing room.** Separate a statement that produces a value from the
   statement that consumes it with a blank line — e.g. an assignment, a blank
   line, then the `if err != nil` check. Group code into readable paragraphs.
 - **Guard clauses.** Handle edge cases and errors first and return early, so the
   happy path stays unindented and reads straight down the function.
 - **No comments.** Code must explain itself through naming and structure.
-  (Struct tags are not comments.)
+  (Struct tags are not comments.) The rare exception is a constraint the code
+  cannot express on its own — an external or internal protocol, not a
+  restatement of what the code does — such as noting that a flag exists only
+  because another process invokes it.
 - **Procedural code.** Always inline simple logic so readers don't have to jump
   around to see what small functions do. 1-3 line functions shouldn't exist
   unless there's a very good reason — e.g. they wrap something that could change,
@@ -63,13 +68,19 @@ General and meant to be reused verbatim across projects.
 ## Roles
 
 - **`main.go`** — process entry point. Parses flags, constructs the
-  application (or dispatches to a widget-provided auxiliary process mode),
-  runs the program, and reports startup and config errors. No feature logic.
+  application (or dispatches to one of the widget-provided auxiliary process
+  modes), runs the program, and reports startup and config errors. No feature
+  logic.
 - **`internal/tui/app.go`** — the root model. Owns the widgets, routes incoming
   messages to them, holds global state (window size and the selection cursor),
   and composes their rendered output into the overall layout. The single place
-  widgets are wired together. Also owns the shared search input and the set of
-  modes: it tracks the current mode, switches automatically to the first mode
+  widgets are wired together. Beyond the modes it also owns the non-mode widgets
+  — the status indicators (clock, battery) and the help overlay — driving their
+  init and update and composing their output into the header, and it owns the
+  global help-overlay toggle, routing the few app-level hotkeys (those not tied
+  to a mode) to the appropriate non-mode widget. Also owns the shared search
+  input and the set of modes: it tracks the current mode, switches automatically
+  to the first mode
   that has results for the query (unless a hotkey or startup flag has pinned
   one), and feeds the query to every mode. It owns the one selection cursor for
   the active mode — moving, clamping, and resetting it on a query change or mode

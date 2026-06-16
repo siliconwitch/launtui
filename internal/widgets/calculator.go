@@ -51,7 +51,7 @@ type currencyRatesMsg struct {
 }
 
 type Calculator struct {
-	cfg         CalculatorConfig
+	config      CalculatorConfig
 	query       string
 	answer      string
 	valid       bool
@@ -61,16 +61,16 @@ type Calculator struct {
 	ratesFailed bool
 }
 
-func NewCalculator(cfg CalculatorConfig) Calculator {
-	return Calculator{cfg: cfg}
+func NewCalculator(config CalculatorConfig) Calculator {
+	return Calculator{config: config}
 }
 
 func (Calculator) Name() string    { return "Calc" }
 func (Calculator) Hotkey() string  { return "ctrl+c" }
-func (c Calculator) Enabled() bool { return c.cfg.Enabled }
+func (c Calculator) Enabled() bool { return c.config.Enabled }
 
 func (c Calculator) Init() tea.Cmd {
-	if !c.cfg.Enabled {
+	if !c.config.Enabled {
 		return nil
 	}
 
@@ -148,7 +148,7 @@ func (c Calculator) Update(msg tea.Msg) (Mode, tea.Cmd) {
 		}
 
 		entry := calculation{Expression: c.query, Answer: c.answer, Time: time.Now().Unix()}
-		limit := c.cfg.MaxHistory
+		limit := c.config.MaxHistory
 
 		return c, func() tea.Msg {
 			if limit <= 0 {
@@ -308,7 +308,7 @@ func (c *Calculator) evaluate() {
 	}
 
 	if value, ok := evalExpression(c.query); ok {
-		c.answer = formatNumber(value, c.cfg.Precision)
+		c.answer = formatNumber(value, c.config.Precision)
 		c.valid = true
 
 		return
@@ -341,7 +341,7 @@ func (c *Calculator) evaluate() {
 		amount = value
 	}
 
-	if answer, ok := convertDecibel(amount, fromText, toText, c.cfg.Precision); ok {
+	if answer, ok := convertDecibel(amount, fromText, toText, c.config.Precision); ok {
 		c.answer = answer
 		c.valid = true
 
@@ -353,7 +353,7 @@ func (c *Calculator) evaluate() {
 			base := amount*from.factor + from.offset
 			value := (base - to.offset) / to.factor
 
-			c.answer = formatNumber(value, c.cfg.Precision) + " " + to.label
+			c.answer = formatNumber(value, c.config.Precision) + " " + to.label
 			c.valid = true
 
 			return
@@ -1164,16 +1164,16 @@ func containsWord(text, word string) bool {
 }
 
 type bitwiseRewriter struct {
-	src []rune
-	pos int
+	source   []rune
+	position int
 }
 
 func rewriteBitwise(input string) string {
-	rewriter := &bitwiseRewriter{src: []rune(input)}
+	rewriter := &bitwiseRewriter{source: []rune(input)}
 	output := rewriter.parseOr()
 
-	if rewriter.pos < len(rewriter.src) {
-		output += string(rewriter.src[rewriter.pos:])
+	if rewriter.position < len(rewriter.source) {
+		output += string(rewriter.source[rewriter.position:])
 	}
 
 	return output
@@ -1226,34 +1226,34 @@ func (r *bitwiseRewriter) parseShift() string {
 func (r *bitwiseRewriter) parseArithmetic() string {
 	var builder strings.Builder
 
-	for r.pos < len(r.src) {
-		c := r.src[r.pos]
+	for r.position < len(r.source) {
+		char := r.source[r.position]
 
-		if c == ')' || c == ',' || r.atBitwiseBoundary() {
+		if char == ')' || char == ',' || r.atBitwiseBoundary() {
 			break
 		}
 
 		switch {
-		case c == '~':
-			r.pos++
+		case char == '~':
+			r.position++
 			builder.WriteString("bitnot(" + r.parseAtom() + ")")
-		case c == '(':
-			r.pos++
+		case char == '(':
+			r.position++
 			builder.WriteString("(" + r.parseArguments() + ")")
 			r.consume(')')
-		case c == '&' && r.peekNext() == '&':
+		case char == '&' && r.peekNext() == '&':
 			builder.WriteString("&&")
-			r.pos += 2
-		case c == '|' && r.peekNext() == '|':
+			r.position += 2
+		case char == '|' && r.peekNext() == '|':
 			builder.WriteString("||")
-			r.pos += 2
-		case isDigit(c):
+			r.position += 2
+		case isDigit(char):
 			builder.WriteString(r.readNumber())
-		case isIdentStart(c):
+		case isIdentStart(char):
 			builder.WriteString(r.parseIdentifier())
 		default:
-			builder.WriteRune(c)
-			r.pos++
+			builder.WriteRune(char)
+			r.position++
 		}
 	}
 
@@ -1262,19 +1262,19 @@ func (r *bitwiseRewriter) parseArithmetic() string {
 
 func (r *bitwiseRewriter) parseIdentifier() string {
 	name := r.readIdent()
-	mark := r.pos
+	mark := r.position
 
 	r.skipSpaces()
 
-	if r.pos < len(r.src) && r.src[r.pos] == '(' {
-		r.pos++
+	if r.position < len(r.source) && r.source[r.position] == '(' {
+		r.position++
 		call := name + "(" + r.parseArguments() + ")"
 		r.consume(')')
 
 		return call
 	}
 
-	r.pos = mark
+	r.position = mark
 
 	return name
 }
@@ -1282,23 +1282,23 @@ func (r *bitwiseRewriter) parseIdentifier() string {
 func (r *bitwiseRewriter) parseAtom() string {
 	r.skipSpaces()
 
-	if r.pos >= len(r.src) {
+	if r.position >= len(r.source) {
 		return ""
 	}
 
-	c := r.src[r.pos]
+	char := r.source[r.position]
 
 	switch {
-	case c == '~':
-		r.pos++
+	case char == '~':
+		r.position++
 		return "bitnot(" + r.parseAtom() + ")"
-	case c == '(':
-		r.pos++
+	case char == '(':
+		r.position++
 		group := "(" + r.parseArguments() + ")"
 		r.consume(')')
 
 		return group
-	case isIdentStart(c):
+	case isIdentStart(char):
 		return r.parseIdentifier()
 	default:
 		return r.readNumber()
@@ -1316,7 +1316,7 @@ func (r *bitwiseRewriter) parseArguments() string {
 }
 
 func (r *bitwiseRewriter) atBitwiseBoundary() bool {
-	switch r.src[r.pos] {
+	switch r.source[r.position] {
 	case '|':
 		return r.peekNext() != '|'
 	case '&':
@@ -1333,48 +1333,48 @@ func (r *bitwiseRewriter) atBitwiseBoundary() bool {
 func (r *bitwiseRewriter) atWord(word string) bool {
 	runes := []rune(word)
 
-	if r.pos+len(runes) > len(r.src) {
+	if r.position+len(runes) > len(r.source) {
 		return false
 	}
 
 	for offset, expected := range runes {
-		if r.src[r.pos+offset] != expected {
+		if r.source[r.position+offset] != expected {
 			return false
 		}
 	}
 
-	after := r.pos + len(runes)
+	after := r.position + len(runes)
 
-	return after >= len(r.src) || !isIdentPart(r.src[after])
+	return after >= len(r.source) || !isIdentPart(r.source[after])
 }
 
-func (r *bitwiseRewriter) consume(c rune) bool {
+func (r *bitwiseRewriter) consume(char rune) bool {
 	r.skipSpaces()
 
-	if r.pos < len(r.src) && r.src[r.pos] == c {
-		r.pos++
+	if r.position < len(r.source) && r.source[r.position] == char {
+		r.position++
 		return true
 	}
 
 	return false
 }
 
-func (r *bitwiseRewriter) consumeSingle(c rune) bool {
+func (r *bitwiseRewriter) consumeSingle(char rune) bool {
 	r.skipSpaces()
 
-	if r.pos < len(r.src) && r.src[r.pos] == c && r.peekNext() != c {
-		r.pos++
+	if r.position < len(r.source) && r.source[r.position] == char && r.peekNext() != char {
+		r.position++
 		return true
 	}
 
 	return false
 }
 
-func (r *bitwiseRewriter) consumeDouble(c rune) bool {
+func (r *bitwiseRewriter) consumeDouble(char rune) bool {
 	r.skipSpaces()
 
-	if r.pos+1 < len(r.src) && r.src[r.pos] == c && r.src[r.pos+1] == c {
-		r.pos += 2
+	if r.position+1 < len(r.source) && r.source[r.position] == char && r.source[r.position+1] == char {
+		r.position += 2
 		return true
 	}
 
@@ -1385,7 +1385,7 @@ func (r *bitwiseRewriter) consumeWord(word string) bool {
 	r.skipSpaces()
 
 	if r.atWord(word) {
-		r.pos += len([]rune(word))
+		r.position += len([]rune(word))
 		return true
 	}
 
@@ -1393,80 +1393,80 @@ func (r *bitwiseRewriter) consumeWord(word string) bool {
 }
 
 func (r *bitwiseRewriter) skipSpaces() {
-	for r.pos < len(r.src) && (r.src[r.pos] == ' ' || r.src[r.pos] == '\t') {
-		r.pos++
+	for r.position < len(r.source) && (r.source[r.position] == ' ' || r.source[r.position] == '\t') {
+		r.position++
 	}
 }
 
 func (r *bitwiseRewriter) peekNext() rune {
-	if r.pos+1 < len(r.src) {
-		return r.src[r.pos+1]
+	if r.position+1 < len(r.source) {
+		return r.source[r.position+1]
 	}
 
 	return 0
 }
 
 func (r *bitwiseRewriter) readIdent() string {
-	start := r.pos
+	start := r.position
 
-	for r.pos < len(r.src) && isIdentPart(r.src[r.pos]) {
-		r.pos++
+	for r.position < len(r.source) && isIdentPart(r.source[r.position]) {
+		r.position++
 	}
 
-	return string(r.src[start:r.pos])
+	return string(r.source[start:r.position])
 }
 
 func (r *bitwiseRewriter) readNumber() string {
-	start := r.pos
+	start := r.position
 
-	if r.src[r.pos] == '0' && r.pos+1 < len(r.src) {
-		switch r.src[r.pos+1] {
+	if r.source[r.position] == '0' && r.position+1 < len(r.source) {
+		switch r.source[r.position+1] {
 		case 'x', 'X', 'b', 'B', 'o', 'O':
-			r.pos += 2
+			r.position += 2
 
-			for r.pos < len(r.src) && isHexDigit(r.src[r.pos]) {
-				r.pos++
+			for r.position < len(r.source) && isHexDigit(r.source[r.position]) {
+				r.position++
 			}
 
-			return string(r.src[start:r.pos])
+			return string(r.source[start:r.position])
 		}
 	}
 
-	for r.pos < len(r.src) && (isDigit(r.src[r.pos]) || r.src[r.pos] == '.') {
-		r.pos++
+	for r.position < len(r.source) && (isDigit(r.source[r.position]) || r.source[r.position] == '.') {
+		r.position++
 	}
 
-	if r.pos < len(r.src) && (r.src[r.pos] == 'e' || r.src[r.pos] == 'E') {
-		r.pos++
+	if r.position < len(r.source) && (r.source[r.position] == 'e' || r.source[r.position] == 'E') {
+		r.position++
 
-		if r.pos < len(r.src) && (r.src[r.pos] == '+' || r.src[r.pos] == '-') {
-			r.pos++
+		if r.position < len(r.source) && (r.source[r.position] == '+' || r.source[r.position] == '-') {
+			r.position++
 		}
 
-		for r.pos < len(r.src) && isDigit(r.src[r.pos]) {
-			r.pos++
+		for r.position < len(r.source) && isDigit(r.source[r.position]) {
+			r.position++
 		}
 	}
 
-	if r.pos == start {
-		r.pos++
+	if r.position == start {
+		r.position++
 	}
 
-	return string(r.src[start:r.pos])
+	return string(r.source[start:r.position])
 }
 
-func isIdentStart(c rune) bool {
-	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+func isIdentStart(char rune) bool {
+	return char == '_' || (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z')
 }
 
-func isIdentPart(c rune) bool {
-	return isIdentStart(c) || isDigit(c)
+func isIdentPart(char rune) bool {
+	return isIdentStart(char) || isDigit(char)
 }
 
-func isDigit(c rune) bool {
-	return c >= '0' && c <= '9'
+func isDigit(char rune) bool {
+	return char >= '0' && char <= '9'
 }
 
-func isHexDigit(c rune) bool {
-	return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+func isHexDigit(char rune) bool {
+	return isDigit(char) || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')
 }

@@ -59,7 +59,7 @@ _Looking for maintainers._
 | Passwords         | [pass](https://www.passwordstore.org) and gpg             |
 | Projects          | git                                                       |
 | Web               | xdg-utils (`xdg-open`)                                    |
-| Currency rates    | Network access to frankfurter.dev (cached for 24 h)       |
+| Currency rates    | Network access to api.frankfurter.dev (cached for 24 h)   |
 
 ## Usage
 
