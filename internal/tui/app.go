@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/siliconwitch/launtui/internal/widgets"
 )
@@ -31,42 +32,57 @@ type App struct {
 	input   textinput.Model
 	modes   []widgets.Mode
 	current int
+	cursor  int
 	auto    bool
+
+	draft     string
+	recalling bool
 
 	width  int
 	height int
 }
 
 func New(startHotkey string) (App, error) {
-	runCfg := widgets.DefaultRunConfig()
-	calculatorCfg := widgets.DefaultCalculatorConfig()
-	passwordsCfg := widgets.DefaultPasswordsConfig()
-	projectsCfg := widgets.DefaultProjectsConfig()
-	clipboardCfg := widgets.DefaultClipboardConfig()
-	webCfg := widgets.DefaultWebConfig()
-	clockCfg := widgets.DefaultClockConfig()
-	batteryCfg := widgets.DefaultBatteryConfig()
-	helpCfg := widgets.DefaultHelpConfig()
+	runConfig := widgets.DefaultRunConfig()
+	calculatorConfig := widgets.DefaultCalculatorConfig()
+	passwordsConfig := widgets.DefaultPasswordsConfig()
+	projectsConfig := widgets.DefaultProjectsConfig()
+	clipboardConfig := widgets.DefaultClipboardConfig()
+	emojiConfig := widgets.DefaultEmojiConfig()
+	webConfig := widgets.DefaultWebConfig()
+	clockConfig := widgets.DefaultClockConfig()
+	batteryConfig := widgets.DefaultBatteryConfig()
+	helpConfig := widgets.DefaultHelpConfig()
 
-	err := Load(&runCfg, &calculatorCfg, &passwordsCfg, &projectsCfg, &clipboardCfg,
-		&webCfg, &clockCfg, &batteryCfg, &helpCfg)
+	err := LoadConfig(
+		&runConfig,
+		&calculatorConfig,
+		&passwordsConfig,
+		&projectsConfig,
+		&clipboardConfig,
+		&emojiConfig,
+		&webConfig,
+		&clockConfig,
+		&batteryConfig,
+		&helpConfig,
+	)
 
 	input := textinput.New()
 	input.Prompt = "❯ "
-	input.Placeholder = "Search…"
 	input.Focus()
 
 	app := App{
-		clock:   widgets.NewClock(clockCfg),
-		battery: widgets.NewBattery(batteryCfg),
+		clock:   widgets.NewClock(clockConfig),
+		battery: widgets.NewBattery(batteryConfig),
 		input:   input,
 		modes: []widgets.Mode{
-			widgets.NewRun(runCfg),
-			widgets.NewCalculator(calculatorCfg),
-			widgets.NewPasswords(passwordsCfg),
-			widgets.NewProjects(projectsCfg),
-			widgets.NewClipboard(clipboardCfg),
-			widgets.NewWeb(webCfg),
+			widgets.NewRun(runConfig),
+			widgets.NewCalculator(calculatorConfig),
+			widgets.NewPasswords(passwordsConfig),
+			widgets.NewProjects(projectsConfig),
+			widgets.NewClipboard(clipboardConfig),
+			widgets.NewEmoji(emojiConfig),
+			widgets.NewWeb(webConfig),
 		},
 		auto: true,
 	}
@@ -82,7 +98,27 @@ func New(startHotkey string) (App, error) {
 		}
 	}
 
-	app.help = widgets.NewHelp(helpCfg).WithBindings(app.helpBindings())
+	bindings := []widgets.HelpBinding{
+		{Keys: "type", Description: "filter the list"},
+		{Keys: "↑ / ↓", Description: "move selection"},
+		{Keys: "enter", Description: "activate selection"},
+		{Keys: "esc", Description: "quit"},
+		{Keys: "tab / shift+tab", Description: "next / previous mode"},
+		{Keys: "del", Description: "delete the selected history entry"},
+		{Keys: "alt+del", Description: "clear the mode's history"},
+	}
+
+	if len(clockConfig.Zones) > 0 {
+		bindings = append(bindings, widgets.HelpBinding{Keys: "ctrl+t", Description: "switch time zone"})
+	}
+
+	for _, mode := range app.modes {
+		if mode.Enabled() {
+			bindings = append(bindings, widgets.HelpBinding{Keys: mode.Hotkey(), Description: mode.Name() + " mode"})
+		}
+	}
+
+	app.help = widgets.NewHelp(helpConfig).WithBindings(bindings)
 
 	return app, err
 }
@@ -101,21 +137,124 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = msg.Width, msg.Height
-		a.input.Width = a.inputWidth()
+
+		contentWidth := max(1, a.width-2)
+		a.input.Width = max(1, contentWidth/2-lipgloss.Width(a.input.Prompt)-1)
 
 		return a, nil
 
 	case widgets.RequestQuitMsg:
-		cmd := a.close()
-
-		return a, cmd
+		return a, a.close()
 
 	case tea.KeyMsg:
-		return a.handleKey(msg)
-	}
+		key := msg.String()
 
-	if isCtrlDelete(msg) {
-		return a.clearCurrentHistory()
+		if key == "ctrl+h" {
+			a.help = a.help.Toggle()
+
+			return a, nil
+		}
+
+		if a.help.Visible() {
+			if key == "esc" {
+				a.help = a.help.Hide()
+			}
+
+			return a, nil
+		}
+
+		if key == "esc" {
+			return a, a.close()
+		}
+
+		for i, mode := range a.modes {
+			if mode.Enabled() && mode.Hotkey() == key {
+				a.current = i
+				a.auto = false
+				a.cursor = 0
+				a.recalling = false
+
+				return a, a.notifySelection()
+			}
+		}
+
+		var cmd tea.Cmd
+
+		switch key {
+		case "tab":
+			a.current = a.adjacentMode(1)
+			a.auto = false
+			a.cursor = 0
+			a.recalling = false
+
+			return a, a.notifySelection()
+
+		case "shift+tab":
+			a.current = a.adjacentMode(-1)
+			a.auto = false
+			a.cursor = 0
+			a.recalling = false
+
+			return a, a.notifySelection()
+
+		case "ctrl+t":
+			a.clock = a.clock.NextZone()
+
+			return a, nil
+
+		case "up":
+			a.navigate(-1)
+
+			return a, a.notifySelection()
+
+		case "down":
+			a.navigate(1)
+
+			return a, a.notifySelection()
+
+		case "enter":
+			return a, a.modes[a.current].Activate(a.cursor)
+
+		case "delete":
+			if deleter, ok := a.modes[a.current].(widgets.RowDeleter); ok {
+				rows := a.modes[a.current].Rows()
+
+				if a.cursor < len(rows) && rows[a.cursor].Deletable {
+					a.modes[a.current], cmd = deleter.DeleteRow(a.cursor)
+					a.clampCursor()
+
+					return a, cmd
+				}
+			}
+
+			return a, nil
+
+		case "alt+delete":
+			if deleter, ok := a.modes[a.current].(widgets.RowDeleter); ok {
+				a.modes[a.current], cmd = deleter.ClearRows()
+				a.clampCursor()
+
+				return a, cmd
+			}
+
+			return a, nil
+		}
+
+		previous := a.input.Value()
+
+		a.input, cmd = a.input.Update(msg)
+
+		if a.input.Value() != previous {
+			a.setQuery(a.input.Value())
+
+			if a.auto {
+				a.autoSwitch()
+			}
+
+			cmd = tea.Batch(cmd, a.notifySelection())
+		}
+
+		return a, cmd
 	}
 
 	var cmds []tea.Cmd
@@ -148,90 +287,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, tea.Batch(cmds...)
 }
 
-func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-
-	if key == "ctrl+h" {
-		a.help = a.help.Toggle()
-
-		return a, nil
-	}
-
-	if a.help.Visible() {
-		if key == "esc" {
-			a.help = a.help.Hide()
-		}
-
-		return a, nil
-	}
-
-	if key == "esc" {
-		cmd := a.close()
-
-		return a, cmd
-	}
-
-	for i, mode := range a.modes {
-		if mode.Enabled() && mode.Hotkey() == key {
-			a.current = i
-			a.auto = false
-
-			return a, nil
-		}
-	}
-
-	switch key {
-	case "tab":
-		a.current = a.adjacentMode(1)
-		a.auto = false
-
-		return a, nil
-
-	case "shift+tab":
-		a.current = a.adjacentMode(-1)
-		a.auto = false
-
-		return a, nil
-
-	case "up":
-		a.modes[a.current] = a.modes[a.current].MoveUp()
-
-		return a, nil
-
-	case "down":
-		a.modes[a.current] = a.modes[a.current].MoveDown()
-
-		return a, nil
-
-	case "enter":
-		return a, a.modes[a.current].Activate()
-
-	case "delete":
-		if editor, ok := a.modes[a.current].(widgets.HistoryEditor); ok {
-			if mode, cmd, handled := editor.DeleteSelectedHistory(); handled {
-				a.modes[a.current] = mode
-
-				return a, cmd
-			}
-		}
-	}
-
-	previous := a.input.Value()
-
-	var cmd tea.Cmd
-	a.input, cmd = a.input.Update(msg)
-
-	if a.input.Value() != previous {
-		a.setQuery(a.input.Value())
-
-		if a.auto {
-			a.autoSwitch()
-		}
-	}
-
-	return a, cmd
-}
-
 func (a App) adjacentMode(delta int) int {
 	count := len(a.modes)
 
@@ -246,42 +301,97 @@ func (a App) adjacentMode(delta int) int {
 	return a.current
 }
 
-var ctrlDeleteSequences = map[string]bool{
-	unknownCSIString("3;5~"): true,
-	unknownCSIString("3^"):   true,
+func (a *App) clampCursor() {
+	if rows := len(a.modes[a.current].Rows()); a.cursor >= rows {
+		a.cursor = max(rows-1, 0)
+	}
 }
 
-func unknownCSIString(parameters string) string {
-	return fmt.Sprintf("?CSI%+v?", []byte(parameters))
-}
+func (a *App) notifySelection() tea.Cmd {
+	selectable, ok := a.modes[a.current].(widgets.Selectable)
 
-func isCtrlDelete(msg tea.Msg) bool {
-	sequence, ok := msg.(fmt.Stringer)
-
-	return ok && ctrlDeleteSequences[sequence.String()]
-}
-
-func (a App) clearCurrentHistory() (tea.Model, tea.Cmd) {
-	if a.help.Visible() {
-		return a, nil
+	if !ok {
+		return nil
 	}
 
-	if editor, ok := a.modes[a.current].(widgets.HistoryEditor); ok {
-		mode, cmd := editor.ClearHistory()
-		a.modes[a.current] = mode
+	var cmd tea.Cmd
 
-		return a, cmd
-	}
+	a.modes[a.current], cmd = selectable.Select(a.cursor)
 
-	return a, nil
+	return cmd
 }
 
 func (a *App) setQuery(query string) {
+	a.cursor = 0
+	a.recalling = false
+
+	a.applyQuery(query)
+}
+
+func (a *App) applyQuery(query string) {
 	for i := range a.modes {
 		if a.modes[i].Enabled() {
 			a.modes[i] = a.modes[i].SetQuery(query)
 		}
 	}
+}
+
+func (a *App) navigate(delta int) {
+	recaller, isRecaller := a.modes[a.current].(widgets.Recaller)
+
+	move := true
+
+	if isRecaller && !a.recalling {
+		if _, onHistory := recaller.RecallText(a.cursor); onHistory {
+			move = false
+		}
+	}
+
+	if move {
+		a.cursor += delta
+	}
+
+	if a.cursor < 0 {
+		a.cursor = 0
+	}
+
+	a.clampCursor()
+
+	if isRecaller {
+		a.recall(recaller)
+	}
+}
+
+func (a *App) recall(recaller widgets.Recaller) {
+	text, onHistory := recaller.RecallText(a.cursor)
+
+	switch {
+	case onHistory:
+		if !a.recalling {
+			a.draft = a.input.Value()
+			a.recalling = true
+		}
+	case a.recalling:
+		text = a.draft
+		a.recalling = false
+	default:
+		return
+	}
+
+	a.input.SetValue(text)
+	a.input.CursorEnd()
+
+	before := len(a.modes[a.current].Rows())
+
+	a.applyQuery(text)
+
+	a.cursor += len(a.modes[a.current].Rows()) - before
+
+	if a.cursor < 0 {
+		a.cursor = 0
+	}
+
+	a.clampCursor()
 }
 
 func (a *App) close() tea.Cmd {
@@ -322,7 +432,7 @@ func (a *App) autoSwitch() {
 	}
 
 	for i, mode := range a.modes {
-		if mode.Enabled() && mode.HasResults() {
+		if mode.Enabled() && widgets.HasResults(mode.Rows()) {
 			a.current = i
 
 			return
@@ -342,28 +452,6 @@ func (a App) defaultMode() int {
 	return 0
 }
 
-func (a App) helpBindings() []widgets.HelpBinding {
-	bindings := []widgets.HelpBinding{
-		{Keys: "type", Desc: "filter the list"},
-		{Keys: "↑ / ↓", Desc: "move selection"},
-		{Keys: "enter", Desc: "activate selection"},
-		{Keys: "tab / shift+tab", Desc: "next / previous mode"},
-		{Keys: "del", Desc: "delete the selected history entry"},
-		{Keys: "ctrl+del", Desc: "clear the mode's history"},
-	}
-
-	for _, mode := range a.modes {
-		if mode.Enabled() {
-			bindings = append(bindings, widgets.HelpBinding{Keys: mode.Hotkey(), Desc: mode.Name() + " mode"})
-		}
-	}
-
-	return append(bindings,
-		widgets.HelpBinding{Keys: "ctrl+h", Desc: "toggle this help"},
-		widgets.HelpBinding{Keys: "esc", Desc: "quit"},
-	)
-}
-
 func (a App) View() string {
 	if a.width == 0 || a.height == 0 {
 		return ""
@@ -377,34 +465,7 @@ func (a App) View() string {
 		return lipgloss.Place(tuiWidth, tuiHeight, lipgloss.Center, lipgloss.Center, a.help.View())
 	}
 
-	left := lipgloss.JoinVertical(lipgloss.Left,
-		a.modeBar(),
-		a.input.View(),
-	)
-
-	header := spread(contentWidth, left, stackRight(a.clock.View(), a.battery.View()))
-
-	divider := dividerStyle.Render(strings.Repeat("─", contentWidth))
-
-	rows := tuiHeight - lipgloss.Height(header) - 1
-
-	body := lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		divider,
-		a.modes[a.current].View(contentWidth, rows),
-	)
-
-	return appStyle.Width(tuiWidth).Height(tuiHeight).Render(body)
-}
-
-func (a App) inputWidth() int {
-	contentWidth := max(1, a.width-2)
-
-	return max(1, contentWidth/2-lipgloss.Width(a.input.Prompt)-1)
-}
-
-func (a App) modeBar() string {
-	var parts []string
+	var modes []string
 
 	for i, mode := range a.modes {
 		if !mode.Enabled() {
@@ -412,66 +473,84 @@ func (a App) modeBar() string {
 		}
 
 		if i == a.current {
-			parts = append(parts, modeActiveStyle.Render(mode.Name()))
+			modes = append(modes, modeActiveStyle.Render(mode.Name()))
 		} else {
-			parts = append(parts, modeInactiveStyle.Render(mode.Name()))
+			modes = append(modes, modeInactiveStyle.Render(mode.Name()))
 		}
 	}
 
-	bar := strings.Join(parts, "  ")
+	bar := strings.Join(modes, "  ")
+
+	a.input.Placeholder = "Search or ctrl+h for help"
 
 	if a.auto {
-		bar += modeInactiveStyle.Render("  · auto")
+		a.input.Placeholder += " (auto mode)"
 	}
 
-	return bar
-}
+	statusWidth := max(0, contentWidth-lipgloss.Width(bar)-1)
 
-func spread(width int, left, right string) string {
-	gap := max(1, width-lipgloss.Width(left)-lipgloss.Width(right))
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
-}
+	var status []string
 
-func stackRight(parts ...string) string {
-	var visible []string
-
-	for _, part := range parts {
-		if part != "" {
-			visible = append(visible, part)
+	if statusWidth > 0 {
+		for _, part := range []string{a.clock.View(), a.battery.View()} {
+			if part != "" {
+				status = append(status, ansi.Truncate(part, statusWidth, "…"))
+			}
 		}
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Right, visible...)
+	right := lipgloss.JoinVertical(lipgloss.Right, status...)
+	rightWidth := lipgloss.Width(right)
+
+	promptAndCursor := lipgloss.Width(a.input.Prompt) + 1
+	a.input.Width = max(1, contentWidth-rightWidth-1-promptAndCursor)
+
+	left := lipgloss.JoinVertical(lipgloss.Left, bar, a.input.View())
+
+	gap := max(1, contentWidth-lipgloss.Width(left)-rightWidth)
+	header := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+
+	divider := dividerStyle.Render(strings.Repeat("─", contentWidth))
+
+	bodyHeight := tuiHeight - lipgloss.Height(header) - 1
+
+	mode := a.modes[a.current]
+	rows := mode.Rows()
+	cursor := a.cursor
+
+	if cursor >= len(rows) {
+		cursor = max(len(rows)-1, 0)
+	}
+
+	body := lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		divider,
+		widgets.RenderResults(mode.Status(), rows, mode.Accent(), cursor, contentWidth, bodyHeight),
+	)
+
+	return appStyle.Width(tuiWidth).Height(tuiHeight).Render(body)
 }
 
 type Section interface {
 	SectionName() string
 }
 
-func ConfigPath() (string, error) {
-	if path := os.Getenv("LAUNTUI_CONFIG"); path != "" {
-		return path, nil
-	}
+func LoadConfig(targets ...Section) error {
+	path := os.Getenv("LAUNTUI_CONFIG")
 
-	dir, err := os.UserConfigDir()
+	if path == "" {
+		configDir, err := os.UserConfigDir()
 
-	if err != nil {
-		return "", err
-	}
+		if err != nil {
+			return err
+		}
 
-	return filepath.Join(dir, "launtui", "config.toml"), nil
-}
-
-func Load(targets ...Section) error {
-	path, err := ConfigPath()
-
-	if err != nil {
-		return err
+		path = filepath.Join(configDir, "launtui", "config.toml")
 	}
 
 	var raw map[string]toml.Primitive
 
-	md, err := toml.DecodeFile(path, &raw)
+	metadata, err := toml.DecodeFile(path, &raw)
 
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -481,15 +560,15 @@ func Load(targets ...Section) error {
 		return fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	for _, t := range targets {
-		prim, ok := raw[t.SectionName()]
+	for _, target := range targets {
+		primitive, ok := raw[target.SectionName()]
 
 		if !ok {
 			continue
 		}
 
-		if err := md.PrimitiveDecode(prim, t); err != nil {
-			return fmt.Errorf("config section [%s]: %w", t.SectionName(), err)
+		if err := metadata.PrimitiveDecode(primitive, target); err != nil {
+			return fmt.Errorf("config section [%s]: %w", target.SectionName(), err)
 		}
 	}
 

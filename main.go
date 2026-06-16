@@ -12,6 +12,13 @@ import (
 )
 
 func main() {
+	// -record is internal: the clipboard watcher re-invokes launtui as
+	// `launtui -record` once per clipboard change and pipes the new contents to
+	// its stdin (see WatchClipboard). It is never typed by a user, so it is
+	// matched here directly and left unregistered as a flag — keeping it out of
+	// -help, which also means flag parsing must be skipped for it.
+	record := len(os.Args) == 2 && os.Args[1] == "-record"
+
 	modeFlags := []struct {
 		letter string
 		name   string
@@ -21,6 +28,7 @@ func main() {
 		{"p", "Passwords"},
 		{"o", "Projects"},
 		{"v", "Clipboard"},
+		{"e", "Emoji"},
 		{"s", "Web search"},
 	}
 
@@ -31,12 +39,30 @@ func main() {
 	}
 
 	watch := flag.Bool("watch", false, "watch the clipboard and record history")
-	record := flag.Bool("record", false, "record stdin into clipboard history")
 
-	flag.Parse()
+	if !record {
+		flag.Parse()
+	}
 
-	if *watch || *record {
-		runClipboardTool(*watch)
+	if record || *watch {
+		clipboardConfig := widgets.DefaultClipboardConfig()
+
+		if err := tui.LoadConfig(&clipboardConfig); err != nil {
+			fmt.Fprintln(os.Stderr, "launtui: config:", err)
+		}
+
+		var err error
+
+		if record {
+			err = widgets.RecordClipboardStdin(clipboardConfig)
+		} else {
+			err = widgets.WatchClipboard(clipboardConfig)
+		}
+
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "launtui:", err)
+			os.Exit(1)
+		}
 
 		return
 	}
@@ -58,27 +84,6 @@ func main() {
 	}
 
 	_, err = tea.NewProgram(app, tea.WithAltScreen()).Run()
-
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "launtui:", err)
-		os.Exit(1)
-	}
-}
-
-func runClipboardTool(watch bool) {
-	cfg := widgets.DefaultClipboardConfig()
-
-	err := tui.Load(&cfg)
-
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "launtui: config:", err)
-	}
-
-	if watch {
-		err = widgets.WatchClipboard(cfg)
-	} else {
-		err = widgets.RecordClipboardStdin(cfg)
-	}
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "launtui:", err)

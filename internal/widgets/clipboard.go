@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,14 +13,14 @@ import (
 )
 
 type ClipboardConfig struct {
-	Enabled  bool `toml:"enabled"`
-	MaxItems int  `toml:"max_items"`
+	Enabled    bool `toml:"enabled"`
+	MaxHistory int  `toml:"max_history"`
 }
 
 func (ClipboardConfig) SectionName() string { return "clipboard" }
 
 func DefaultClipboardConfig() ClipboardConfig {
-	return ClipboardConfig{Enabled: true, MaxItems: defaultClipboardLimit}
+	return ClipboardConfig{Enabled: true, MaxHistory: 50}
 }
 
 var clipboardAccent = lipgloss.Color("6")
@@ -29,27 +28,23 @@ var clipboardAccent = lipgloss.Color("6")
 type clipboardHistoryMsg []clipboardEntry
 
 type Clipboard struct {
-	cfg  ClipboardConfig
-	list list[clipboardEntry]
+	config ClipboardConfig
+	list   list[clipboardEntry]
 }
 
-func NewClipboard(cfg ClipboardConfig) Clipboard {
-	return Clipboard{cfg: cfg, list: newList(func(entry clipboardEntry) string { return clipboardPreview(entry.Text) })}
+func NewClipboard(config ClipboardConfig) Clipboard {
+	return Clipboard{config: config, list: newList(func(entry clipboardEntry) string { return clipboardPreview(entry.Text) })}
 }
 
 func (Clipboard) Name() string    { return "Clip" }
 func (Clipboard) Hotkey() string  { return "ctrl+v" }
-func (c Clipboard) Enabled() bool { return c.cfg.Enabled }
+func (c Clipboard) Enabled() bool { return c.config.Enabled }
 
 func (c Clipboard) Init() tea.Cmd {
-	if !c.cfg.Enabled {
+	if !c.config.Enabled {
 		return nil
 	}
 
-	return loadClipboardCmd()
-}
-
-func loadClipboardCmd() tea.Cmd {
 	return func() tea.Msg {
 		return clipboardHistoryMsg(loadClipboardHistory())
 	}
@@ -85,25 +80,40 @@ func clipboardPreview(text string) string {
 	return strings.TrimSpace(text)
 }
 
-func (c Clipboard) HasResults() bool { return c.list.hasResults() }
+func (Clipboard) Accent() lipgloss.Color { return clipboardAccent }
 
-func (c Clipboard) MoveUp() Mode {
-	c.list.moveUp()
+func (c Clipboard) Status() string {
+	switch {
+	case !c.list.loaded:
+		return subtleStyle.Render("loading clipboard history…")
+	case len(c.list.items) == 0:
+		return subtleStyle.Render("clipboard history is empty — run `launtui -watch` to record copies")
+	case len(c.list.filtered) == 0:
+		return subtleStyle.Render("no matching clipboard entries")
+	}
 
-	return c
+	return ""
 }
 
-func (c Clipboard) MoveDown() Mode {
-	c.list.moveDown()
+func (c Clipboard) Rows() []Row {
+	now := time.Now().Unix()
 
-	return c
+	return c.list.rows(func(entry clipboardEntry) Row {
+		preview := clipboardPreview(entry.Text)
+
+		if strings.Contains(strings.TrimSpace(entry.Text), "\n") {
+			preview += " ⏎"
+		}
+
+		return Row{left: preview, right: subtleStyle.Render(relativeAge(now - entry.Time)), Deletable: true}
+	})
 }
 
-func (c Clipboard) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
-	selected, ok := c.list.selected()
+func (c Clipboard) DeleteRow(index int) (Mode, tea.Cmd) {
+	selected, ok := c.list.at(index)
 
 	if !ok {
-		return c, nil, false
+		return c, nil
 	}
 
 	entries := make([]clipboardEntry, 0, len(c.list.items))
@@ -116,10 +126,10 @@ func (c Clipboard) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
 
 	c.list.setItems(entries)
 
-	return c, saveClipboardHistoryCmd(entries), true
+	return c, saveClipboardHistoryCmd(entries)
 }
 
-func (c Clipboard) ClearHistory() (Mode, tea.Cmd) {
+func (c Clipboard) ClearRows() (Mode, tea.Cmd) {
 	c.list.setItems(nil)
 
 	return c, saveClipboardHistoryCmd(nil)
@@ -133,14 +143,14 @@ func saveClipboardHistoryCmd(entries []clipboardEntry) tea.Cmd {
 	}
 }
 
-func (c Clipboard) Activate() tea.Cmd {
-	entry, ok := c.list.selected()
+func (c Clipboard) Activate(index int) tea.Cmd {
+	entry, ok := c.list.at(index)
 
 	if !ok {
 		return nil
 	}
 
-	limit := c.cfg.MaxItems
+	limit := c.config.MaxHistory
 
 	return func() tea.Msg {
 		copyToClipboard(entry.Text)
@@ -150,66 +160,8 @@ func (c Clipboard) Activate() tea.Cmd {
 	}
 }
 
-func (c Clipboard) View(width, rows int) string {
-	switch {
-	case !c.list.loaded:
-		return subtleStyle.Render("loading clipboard history…")
-	case len(c.list.items) == 0:
-		return subtleStyle.Render("clipboard history is empty — run `launtui -watch` to record copies")
-	case len(c.list.filtered) == 0:
-		return subtleStyle.Render("no matching clipboard entries")
-	}
-
-	now := time.Now().Unix()
-
-	return c.list.view(width, rows, func(entry clipboardEntry, selected bool, width int) string {
-		return c.renderEntry(entry, selected, width, now)
-	})
-}
-
-func (c Clipboard) renderEntry(entry clipboardEntry, selected bool, width int, now int64) string {
-	avail := max(width-2, 1)
-
-	age := timeAgo(entry.Time, now)
-	preview := clipboardPreview(entry.Text)
-
-	if lines := strings.Count(strings.TrimSpace(entry.Text), "\n"); lines > 0 {
-		preview += " ⏎"
-	}
-
-	if lipgloss.Width(preview) > avail {
-		preview = truncate(preview, avail)
-		age = ""
-	}
-
-	sub := ""
-
-	if age != "" {
-		if gap := avail - lipgloss.Width(preview); gap > lipgloss.Width(age)+1 {
-			sub = strings.Repeat(" ", gap-lipgloss.Width(age)) + subtleStyle.Render(age)
-		}
-	}
-
-	return renderRow(clipboardAccent, selected, preview, sub)
-}
-
-func timeAgo(unix, now int64) string {
-	elapsed := now - unix
-
-	switch {
-	case elapsed < 60:
-		return "now"
-	case elapsed < 3600:
-		return strconv.FormatInt(elapsed/60, 10) + "m"
-	case elapsed < 86400:
-		return strconv.FormatInt(elapsed/3600, 10) + "h"
-	default:
-		return strconv.FormatInt(elapsed/86400, 10) + "d"
-	}
-}
-
-func WatchClipboard(cfg ClipboardConfig) error {
-	if !cfg.Enabled {
+func WatchClipboard(config ClipboardConfig) error {
+	if !config.Enabled {
 		return errors.New("clipboard mode is disabled in config")
 	}
 
@@ -222,10 +174,10 @@ func WatchClipboard(cfg ClipboardConfig) error {
 	wlPaste, err := exec.LookPath("wl-paste")
 
 	if err == nil {
-		cmd := exec.Command(wlPaste, "--type", "text", "--no-newline", "--watch", self, "-record")
-		cmd.Stderr = os.Stderr
+		command := exec.Command(wlPaste, "--type", "text", "--no-newline", "--watch", self, "-record")
+		command.Stderr = os.Stderr
 
-		return cmd.Run()
+		return command.Run()
 	}
 
 	last := ""
@@ -235,16 +187,24 @@ func WatchClipboard(cfg ClipboardConfig) error {
 
 		if strings.TrimSpace(text) != "" && text != last {
 			last = text
-			recordClipboardText(text, cfg.MaxItems)
+			recordClipboardText(text, config.MaxHistory)
 		}
 
 		time.Sleep(time.Second)
 	}
 }
 
-func RecordClipboardStdin(cfg ClipboardConfig) error {
-	if !cfg.Enabled || clipboardMarkedSensitive() {
+func RecordClipboardStdin(config ClipboardConfig) error {
+	if !config.Enabled {
 		return nil
+	}
+
+	if wlPaste, err := exec.LookPath("wl-paste"); err == nil {
+		if output, err := exec.Command(wlPaste, "--list-types").Output(); err == nil {
+			if strings.Contains(string(output), "x-kde-passwordManagerHint") {
+				return nil
+			}
+		}
 	}
 
 	data, err := io.ReadAll(io.LimitReader(os.Stdin, 256*1024))
@@ -253,23 +213,7 @@ func RecordClipboardStdin(cfg ClipboardConfig) error {
 		return err
 	}
 
-	recordClipboardText(string(data), cfg.MaxItems)
+	recordClipboardText(string(data), config.MaxHistory)
 
 	return nil
-}
-
-func clipboardMarkedSensitive() bool {
-	wlPaste, err := exec.LookPath("wl-paste")
-
-	if err != nil {
-		return false
-	}
-
-	output, err := exec.Command(wlPaste, "--list-types").Output()
-
-	if err != nil {
-		return false
-	}
-
-	return strings.Contains(string(output), "x-kde-passwordManagerHint")
 }

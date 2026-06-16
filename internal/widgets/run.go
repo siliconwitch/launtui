@@ -15,6 +15,7 @@ import (
 
 type RunConfig struct {
 	Enabled  bool     `toml:"enabled"`
+	Comment  bool     `toml:"comment"`
 	Exclude  []string `toml:"exclude"`
 	Terminal string   `toml:"terminal"`
 }
@@ -22,7 +23,7 @@ type RunConfig struct {
 func (RunConfig) SectionName() string { return "run" }
 
 func DefaultRunConfig() RunConfig {
-	return RunConfig{Enabled: true}
+	return RunConfig{Enabled: true, Comment: true}
 }
 
 var runAccent = lipgloss.Color("4")
@@ -38,24 +39,82 @@ type desktopApp struct {
 type appsLoadedMsg []desktopApp
 
 type Run struct {
-	cfg  RunConfig
-	list list[desktopApp]
+	config RunConfig
+	list   list[desktopApp]
 }
 
-func NewRun(cfg RunConfig) Run {
-	return Run{cfg: cfg, list: newList(func(app desktopApp) string { return app.Name })}
+func NewRun(config RunConfig) Run {
+	return Run{config: config, list: newList(func(app desktopApp) string { return app.Name })}
 }
 
 func (Run) Name() string    { return "Run" }
 func (Run) Hotkey() string  { return "ctrl+r" }
-func (r Run) Enabled() bool { return r.cfg.Enabled }
+func (r Run) Enabled() bool { return r.config.Enabled }
 
 func (r Run) Init() tea.Cmd {
-	if !r.cfg.Enabled {
+	if !r.config.Enabled {
 		return nil
 	}
 
-	return loadAppsCmd()
+	return func() tea.Msg {
+		var dirs []string
+
+		dataHome := os.Getenv("XDG_DATA_HOME")
+
+		if dataHome == "" {
+			if home, err := os.UserHomeDir(); err == nil {
+				dataHome = filepath.Join(home, ".local", "share")
+			}
+		}
+
+		if dataHome != "" {
+			dirs = append(dirs, filepath.Join(dataHome, "applications"))
+		}
+
+		dataDirs := os.Getenv("XDG_DATA_DIRS")
+
+		if dataDirs == "" {
+			dataDirs = "/usr/local/share:/usr/share"
+		}
+
+		for _, dir := range filepath.SplitList(dataDirs) {
+			if dir != "" {
+				dirs = append(dirs, filepath.Join(dir, "applications"))
+			}
+		}
+
+		seen := map[string]bool{}
+
+		var apps []desktopApp
+
+		for _, dir := range dirs {
+			entries, err := os.ReadDir(dir)
+
+			if err != nil {
+				continue
+			}
+
+			for _, entry := range entries {
+				id := entry.Name()
+
+				if entry.IsDir() || !strings.HasSuffix(id, ".desktop") || seen[id] {
+					continue
+				}
+
+				seen[id] = true
+
+				if app, ok := parseDesktopFile(filepath.Join(dir, id)); ok {
+					apps = append(apps, app)
+				}
+			}
+		}
+
+		sort.Slice(apps, func(i, j int) bool {
+			return strings.ToLower(apps[i].Name) < strings.ToLower(apps[j].Name)
+		})
+
+		return appsLoadedMsg(apps)
+	}
 }
 
 func (r Run) Update(msg tea.Msg) (Mode, tea.Cmd) {
@@ -65,31 +124,29 @@ func (r Run) Update(msg tea.Msg) (Mode, tea.Cmd) {
 		return r, nil
 	}
 
-	r.list.setItems(r.visibleApps(loaded))
+	if len(r.config.Exclude) == 0 {
+		r.list.setItems(loaded)
 
-	return r, nil
-}
-
-func (r Run) visibleApps(apps []desktopApp) []desktopApp {
-	if len(r.cfg.Exclude) == 0 {
-		return apps
+		return r, nil
 	}
 
-	excluded := make(map[string]bool, len(r.cfg.Exclude))
+	excluded := make(map[string]bool, len(r.config.Exclude))
 
-	for _, name := range r.cfg.Exclude {
+	for _, name := range r.config.Exclude {
 		excluded[strings.ToLower(strings.TrimSpace(name))] = true
 	}
 
 	var kept []desktopApp
 
-	for _, app := range apps {
+	for _, app := range loaded {
 		if !excluded[strings.ToLower(strings.TrimSpace(app.Name))] {
 			kept = append(kept, app)
 		}
 	}
 
-	return kept
+	r.list.setItems(kept)
+
+	return r, nil
 }
 
 func (r Run) SetQuery(query string) Mode {
@@ -98,31 +155,9 @@ func (r Run) SetQuery(query string) Mode {
 	return r
 }
 
-func (r Run) HasResults() bool { return r.list.hasResults() }
+func (Run) Accent() lipgloss.Color { return runAccent }
 
-func (r Run) MoveUp() Mode {
-	r.list.moveUp()
-
-	return r
-}
-
-func (r Run) MoveDown() Mode {
-	r.list.moveDown()
-
-	return r
-}
-
-func (r Run) Activate() tea.Cmd {
-	app, ok := r.list.selected()
-
-	if !ok {
-		return nil
-	}
-
-	return launchCmd(app, r.cfg.Terminal)
-}
-
-func (r Run) View(width, rows int) string {
+func (r Run) Status() string {
 	switch {
 	case !r.list.loaded:
 		return subtleStyle.Render("scanning applications…")
@@ -130,165 +165,43 @@ func (r Run) View(width, rows int) string {
 		return subtleStyle.Render("no matching applications")
 	}
 
-	return r.list.view(width, rows, r.renderApp)
-}
-
-func (r Run) renderApp(app desktopApp, selected bool, width int) string {
-	avail := max(width-2, 1)
-
-	name, comment := app.Name, app.Comment
-
-	if lipgloss.Width(name) > avail {
-		name = truncate(name, avail)
-		comment = ""
-	}
-
-	sub := ""
-
-	if comment != "" {
-		if gap := avail - lipgloss.Width(name); gap > 3 {
-			comment = truncate(comment, gap-2)
-			sub = strings.Repeat(" ", gap-lipgloss.Width(comment)) + subtleStyle.Render(comment)
-		}
-	}
-
-	return renderRow(runAccent, selected, name, sub)
-}
-
-func loadAppsCmd() tea.Cmd {
-	return func() tea.Msg {
-		return appsLoadedMsg(scanDesktopApps())
-	}
-}
-
-func launchCmd(app desktopApp, preferredTerminal string) tea.Cmd {
-	return func() tea.Msg {
-		spawnDetached(app.WorkingDir, launchArgv(app, preferredTerminal)...)
-
-		return RequestQuitMsg{}
-	}
-}
-
-func launchArgv(app desktopApp, preferredTerminal string) []string {
-	cmdline := strings.TrimSpace(app.Exec)
-
-	if cmdline == "" {
-		return nil
-	}
-
-	if app.Terminal {
-		return terminalArgv(resolveTerminal(preferredTerminal), cmdline)
-	}
-
-	return []string{"sh", "-c", cmdline}
-}
-
-func resolveTerminal(preferred string) string {
-	if preferred != "" {
-		return preferred
-	}
-
-	if terminal := os.Getenv("TERMINAL"); terminal != "" {
-		return terminal
-	}
-
-	candidates := []string{
-		"foot", "alacritty", "kitty", "ghostty", "wezterm",
-		"gnome-terminal", "konsole", "xfce4-terminal", "xterm",
-	}
-
-	for _, candidate := range candidates {
-		_, err := exec.LookPath(candidate)
-
-		if err == nil {
-			return candidate
-		}
-	}
-
 	return ""
 }
 
-func terminalArgv(terminal, cmdline string) []string {
-	if terminal == "" {
-		return []string{"sh", "-c", cmdline}
-	}
+func (r Run) Rows() []Row {
+	return r.list.rows(func(app desktopApp) Row {
+		right := ""
 
-	switch filepath.Base(terminal) {
-	case "foot", "kitty":
-		return []string{terminal, "sh", "-c", cmdline}
-	case "wezterm":
-		return []string{terminal, "start", "--", "sh", "-c", cmdline}
-	case "gnome-terminal":
-		return []string{terminal, "--", "sh", "-c", cmdline}
-	case "xfce4-terminal":
-		return []string{terminal, "-x", "sh", "-c", cmdline}
-	default:
-		return []string{terminal, "-e", "sh", "-c", cmdline}
-	}
-}
-
-func applicationDirs() []string {
-	var dirs []string
-
-	dataHome := os.Getenv("XDG_DATA_HOME")
-
-	if dataHome == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			dataHome = filepath.Join(home, ".local", "share")
-		}
-	}
-
-	if dataHome != "" {
-		dirs = append(dirs, filepath.Join(dataHome, "applications"))
-	}
-
-	dataDirs := os.Getenv("XDG_DATA_DIRS")
-
-	if dataDirs == "" {
-		dataDirs = "/usr/local/share:/usr/share"
-	}
-
-	for _, dir := range filepath.SplitList(dataDirs) {
-		if dir != "" {
-			dirs = append(dirs, filepath.Join(dir, "applications"))
-		}
-	}
-
-	return dirs
-}
-
-func scanDesktopApps() []desktopApp {
-	seen := map[string]bool{}
-
-	var apps []desktopApp
-
-	for _, dir := range applicationDirs() {
-		entries, err := os.ReadDir(dir)
-
-		if err != nil {
-			continue
+		if r.config.Comment && app.Comment != "" {
+			right = subtleStyle.Render(app.Comment)
 		}
 
-		for _, entry := range entries {
-			id := entry.Name()
-
-			if entry.IsDir() || !strings.HasSuffix(id, ".desktop") || seen[id] {
-				continue
-			}
-
-			seen[id] = true
-
-			if app, ok := parseDesktopFile(filepath.Join(dir, id)); ok {
-				apps = append(apps, app)
-			}
-		}
-	}
-
-	sort.Slice(apps, func(i, j int) bool {
-		return strings.ToLower(apps[i].Name) < strings.ToLower(apps[j].Name)
+		return Row{left: app.Name, right: right}
 	})
+}
 
-	return apps
+func (r Run) Activate(index int) tea.Cmd {
+	app, ok := r.list.at(index)
+
+	if !ok {
+		return nil
+	}
+
+	return func() tea.Msg {
+		commandLine := strings.TrimSpace(app.Exec)
+
+		argv := []string{"sh", "-c", commandLine}
+
+		if commandLine == "" {
+			argv = nil
+		} else if app.Terminal {
+			argv = terminalArgv(resolveTerminal(r.config.Terminal), commandLine)
+		}
+
+		spawnDetached(app.WorkingDir, argv...)
+
+		return RequestQuitMsg{}
+	}
 }
 
 var execFieldCodes = regexp.MustCompile(`%[fFuUdDnNickvm]`)
@@ -345,7 +258,13 @@ func parseDesktopFile(path string) (desktopApp, bool) {
 		case "Comment":
 			app.Comment = strings.TrimSpace(value)
 		case "Exec":
-			app.Exec = stripFieldCodes(value)
+			execLine := strings.ReplaceAll(value, "%%", "\x00")
+			execLine = execFieldCodes.ReplaceAllString(execLine, "")
+			execLine = strings.ReplaceAll(execLine, `""`, "")
+			execLine = strings.ReplaceAll(execLine, `''`, "")
+			execLine = strings.ReplaceAll(execLine, "\x00", "%")
+
+			app.Exec = strings.TrimSpace(execLine)
 		case "TryExec":
 			tryExec = strings.TrimSpace(value)
 		case "Path":
@@ -412,14 +331,4 @@ func desktopVisibleIn(onlyShowIn, notShowIn, currentDesktop string) bool {
 	}
 
 	return true
-}
-
-func stripFieldCodes(execLine string) string {
-	execLine = strings.ReplaceAll(execLine, "%%", "\x00")
-	execLine = execFieldCodes.ReplaceAllString(execLine, "")
-	execLine = strings.ReplaceAll(execLine, `""`, "")
-	execLine = strings.ReplaceAll(execLine, `''`, "")
-	execLine = strings.ReplaceAll(execLine, "\x00", "%")
-
-	return strings.TrimSpace(execLine)
 }

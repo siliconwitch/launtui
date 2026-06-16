@@ -161,6 +161,42 @@ func TestShiftTabWrapsToLastMode(t *testing.T) {
 	}
 }
 
+func TestCursorNavigatesAndResets(t *testing.T) {
+	app := newTestApp(t, "")
+
+	var model tea.Model = app
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = typeString(model, "google.com")
+
+	if name := currentName(model.(App)); name != "Web" {
+		t.Fatalf("expected Web mode for a URL, got %q", name)
+	}
+
+	steps := []struct {
+		key        tea.KeyType
+		wantCursor int
+	}{
+		{tea.KeyDown, 1},
+		{tea.KeyDown, 1},
+		{tea.KeyUp, 0},
+	}
+
+	for i, step := range steps {
+		model, _ = model.Update(tea.KeyMsg{Type: step.key})
+
+		if cursor := model.(App).cursor; cursor != step.wantCursor {
+			t.Fatalf("step %d: cursor = %d, want %d", i, cursor, step.wantCursor)
+		}
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = typeString(model, "x")
+
+	if cursor := model.(App).cursor; cursor != 0 {
+		t.Fatalf("cursor should reset to 0 when the query changes, got %d", cursor)
+	}
+}
+
 func TestEscReturnsCloseCommand(t *testing.T) {
 	app := newTestApp(t, "")
 

@@ -2,15 +2,14 @@ package widgets
 
 import (
 	"bytes"
-	"io/fs"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type PasswordsConfig struct {
@@ -35,90 +34,105 @@ type passwordShownMsg struct {
 
 type passwordCopyBlockedMsg struct{}
 
+type passwordUsernameMsg struct {
+	entry    string
+	username string
+}
+
 type Passwords struct {
-	cfg       PasswordsConfig
+	config    PasswordsConfig
 	list      list[string]
+	usernames map[string]string
+	selected  string
 	errorText string
 }
 
-func NewPasswords(cfg PasswordsConfig) Passwords {
-	return Passwords{cfg: cfg, list: newList(func(entry string) string { return entry })}
+func NewPasswords(config PasswordsConfig) Passwords {
+	return Passwords{
+		config:    config,
+		list:      newList(func(entry string) string { return entry }),
+		usernames: map[string]string{},
+	}
 }
 
 func (Passwords) Name() string    { return "Pass" }
 func (Passwords) Hotkey() string  { return "ctrl+p" }
-func (p Passwords) Enabled() bool { return p.cfg.Enabled }
+func (p Passwords) Enabled() bool { return p.config.Enabled }
 
 func (p Passwords) Init() tea.Cmd {
-	if !p.cfg.Enabled {
+	if !p.config.Enabled {
 		return nil
 	}
 
-	return loadPasswordEntriesCmd(p.cfg.Store)
-}
+	store := p.config.Store
 
-func passwordStoreDir(configured string) string {
-	if configured != "" {
-		return expandHome(configured)
-	}
-
-	if dir := os.Getenv("PASSWORD_STORE_DIR"); dir != "" {
-		return dir
-	}
-
-	home, err := os.UserHomeDir()
-
-	if err != nil {
-		return ""
-	}
-
-	return filepath.Join(home, ".password-store")
-}
-
-func loadPasswordEntriesCmd(configuredStore string) tea.Cmd {
 	return func() tea.Msg {
-		return passwordEntriesMsg(scanPasswordStore(passwordStoreDir(configuredStore)))
-	}
-}
+		command := exec.Command("pass", "ls")
 
-func scanPasswordStore(store string) []string {
-	if store == "" {
-		return nil
-	}
-
-	var entries []string
-
-	_ = filepath.WalkDir(store, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
+		if store != "" {
+			command.Env = append(os.Environ(), "PASSWORD_STORE_DIR="+expandHome(store))
 		}
 
-		if entry.IsDir() {
-			if strings.HasPrefix(entry.Name(), ".") && path != store {
-				return filepath.SkipDir
+		output, err := command.Output()
+
+		if err != nil {
+			return passwordEntriesMsg(nil)
+		}
+
+		type treeNode struct {
+			depth int
+			name  string
+		}
+
+		var nodes []treeNode
+
+		for _, raw := range strings.Split(string(output), "\n") {
+			runes := []rune(strings.ReplaceAll(ansi.Strip(raw), "\u00a0", " "))
+
+			connector := -1
+
+			for index, glyph := range runes {
+				if glyph == '├' || glyph == '└' {
+					connector = index
+
+					break
+				}
 			}
 
-			return nil
+			if connector < 0 {
+				continue
+			}
+
+			name := strings.TrimSpace(strings.TrimLeft(string(runes[connector+1:]), "─ "))
+
+			if name == "" {
+				continue
+			}
+
+			nodes = append(nodes, treeNode{depth: connector / 4, name: name})
 		}
 
-		if !strings.HasSuffix(entry.Name(), ".gpg") {
-			return nil
+		var entries []string
+		var ancestors []string
+
+		for index, node := range nodes {
+			if node.depth > len(ancestors) {
+				continue
+			}
+
+			ancestors = append(ancestors[:node.depth], node.name)
+
+			isFolder := index+1 < len(nodes) && nodes[index+1].depth > node.depth
+
+			if !isFolder {
+				entries = append(entries, strings.Join(ancestors, "/"))
+			}
 		}
 
-		relative, err := filepath.Rel(store, path)
+		sort.Strings(entries)
 
-		if err != nil {
-			return nil
-		}
-
-		entries = append(entries, strings.TrimSuffix(relative, ".gpg"))
-
-		return nil
-	})
-
-	sort.Strings(entries)
-
-	return entries
+		return passwordEntriesMsg(entries)
+	}
 }
 
 func (p Passwords) Update(msg tea.Msg) (Mode, tea.Cmd) {
@@ -128,8 +142,46 @@ func (p Passwords) Update(msg tea.Msg) (Mode, tea.Cmd) {
 
 		return p, nil
 
+	case passwordUsernameMsg:
+		p.usernames[msg.entry] = msg.username
+
+		return p, nil
+
 	case passwordShownMsg:
-		return p.handleShown(msg)
+		if msg.err != nil {
+			p.errorText = "pass failed — wrong passphrase or cancelled"
+
+			return p, nil
+		}
+
+		lines := strings.Split(msg.output, "\n")
+		password := strings.TrimRight(lines[0], "\r")
+
+		if password == "" {
+			p.errorText = "entry is empty"
+
+			return p, nil
+		}
+
+		username := ""
+
+		if len(lines) > 1 {
+			username = strings.TrimSpace(lines[1])
+		}
+
+		return p, func() tea.Msg {
+			if suppressClipboardRecording(password) != nil {
+				return passwordCopyBlockedMsg{}
+			}
+
+			copyToClipboard(password)
+
+			if username != "" {
+				recordClipboardText(username, 0)
+			}
+
+			return RequestQuitMsg{}
+		}
 
 	case passwordCopyBlockedMsg:
 		p.errorText = "could not protect clipboard history — password not copied"
@@ -140,43 +192,6 @@ func (p Passwords) Update(msg tea.Msg) (Mode, tea.Cmd) {
 	return p, nil
 }
 
-func (p Passwords) handleShown(msg passwordShownMsg) (Mode, tea.Cmd) {
-	if msg.err != nil {
-		p.errorText = "pass failed — wrong passphrase or cancelled"
-
-		return p, nil
-	}
-
-	lines := strings.Split(msg.output, "\n")
-	password := strings.TrimRight(lines[0], "\r")
-
-	if password == "" {
-		p.errorText = "entry is empty"
-
-		return p, nil
-	}
-
-	username := ""
-
-	if len(lines) > 1 {
-		username = strings.TrimSpace(lines[1])
-	}
-
-	return p, func() tea.Msg {
-		if suppressClipboardRecording(password) != nil {
-			return passwordCopyBlockedMsg{}
-		}
-
-		copyToClipboard(password)
-
-		if username != "" {
-			recordClipboardText(username, 0)
-		}
-
-		return RequestQuitMsg{}
-	}
-}
-
 func (p Passwords) SetQuery(query string) Mode {
 	p.errorText = ""
 	p.list.setQuery(query)
@@ -184,35 +199,89 @@ func (p Passwords) SetQuery(query string) Mode {
 	return p
 }
 
-func (p Passwords) HasResults() bool { return p.list.hasResults() }
+func (Passwords) Accent() lipgloss.Color { return passwordsAccent }
 
-func (p Passwords) MoveUp() Mode {
-	p.list.moveUp()
+func (p Passwords) Status() string {
+	switch {
+	case !p.list.loaded:
+		return subtleStyle.Render("scanning password store…")
+	case len(p.list.items) == 0:
+		return subtleStyle.Render("no password store found")
+	case len(p.list.filtered) == 0:
+		return subtleStyle.Render("no matching passwords")
+	case p.errorText != "":
+		return errorStyle.Render(p.errorText)
+	}
 
-	return p
+	return ""
 }
 
-func (p Passwords) MoveDown() Mode {
-	p.list.moveDown()
+func (p Passwords) Rows() []Row {
+	return p.list.rows(func(entry string) Row {
+		right := ""
 
-	return p
+		if entry == p.selected {
+			if username := p.usernames[entry]; username != "" {
+				right = subtleStyle.Render(username)
+			}
+		}
+
+		return Row{left: entry, right: right}
+	})
 }
 
-func (p Passwords) Activate() tea.Cmd {
-	entry, ok := p.list.selected()
+func (p Passwords) Select(index int) (Mode, tea.Cmd) {
+	entry, ok := p.list.at(index)
+
+	if !ok {
+		p.selected = ""
+
+		return p, nil
+	}
+
+	p.selected = entry
+
+	if _, known := p.usernames[entry]; known {
+		return p, nil
+	}
+
+	store := p.config.Store
+
+	return p, func() tea.Msg {
+		command := exec.Command("pass", "show", entry)
+		command.Env = append(os.Environ(), "PASSWORD_STORE_GPG_OPTS=--pinentry-mode cancel")
+
+		if store != "" {
+			command.Env = append(command.Env, "PASSWORD_STORE_DIR="+expandHome(store))
+		}
+
+		output, err := command.Output()
+
+		if err != nil {
+			return nil
+		}
+
+		lines := strings.Split(string(output), "\n")
+
+		if len(lines) < 2 {
+			return nil
+		}
+
+		return passwordUsernameMsg{entry: entry, username: strings.TrimSpace(lines[1])}
+	}
+}
+
+func (p Passwords) Activate(index int) tea.Cmd {
+	entry, ok := p.list.at(index)
 
 	if !ok {
 		return nil
 	}
 
-	return showPasswordCmd(entry)
-}
-
-func showPasswordCmd(entry string) tea.Cmd {
-	cmd := exec.Command("pass", "show", entry)
+	command := exec.Command("pass", "show", entry)
 
 	var output bytes.Buffer
-	cmd.Stdout = &output
+	command.Stdout = &output
 
 	if os.Getenv("GPG_TTY") == "" {
 		tty, err := os.Readlink("/proc/self/fd/0")
@@ -221,31 +290,10 @@ func showPasswordCmd(entry string) tea.Cmd {
 			tty = "/dev/tty"
 		}
 
-		cmd.Env = append(os.Environ(), "GPG_TTY="+tty)
+		command.Env = append(os.Environ(), "GPG_TTY="+tty)
 	}
 
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+	return tea.ExecProcess(command, func(err error) tea.Msg {
 		return passwordShownMsg{output: output.String(), err: err}
 	})
-}
-
-func (p Passwords) View(width, rows int) string {
-	switch {
-	case !p.list.loaded:
-		return subtleStyle.Render("scanning password store…")
-	case len(p.list.items) == 0:
-		return subtleStyle.Render("no password store found")
-	case len(p.list.filtered) == 0:
-		return subtleStyle.Render("no matching passwords")
-	}
-
-	if p.errorText != "" {
-		return errorStyle.Render(p.errorText) + "\n" + p.list.view(width, rows-1, p.renderEntry)
-	}
-
-	return p.list.view(width, rows, p.renderEntry)
-}
-
-func (p Passwords) renderEntry(entry string, selected bool, width int) string {
-	return renderRow(passwordsAccent, selected, truncate(entry, max(width-2, 1)), "")
 }

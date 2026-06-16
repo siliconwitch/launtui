@@ -2,35 +2,9 @@ package widgets
 
 import "testing"
 
-func TestQueryAsURL(t *testing.T) {
-	valid := map[string]string{
-		"google.com":            "https://google.com",
-		"google.com/search?q=x": "https://google.com/search?q=x",
-		"http://example.org":    "http://example.org",
-		"https://example.org/a": "https://example.org/a",
-		"localhost":             "http://localhost",
-		"localhost:3000":        "http://localhost:3000",
-		"sub.domain.co.uk:8080": "https://sub.domain.co.uk:8080",
-	}
-
-	for input, want := range valid {
-		got, ok := queryAsURL(input)
-
-		if !ok || got != want {
-			t.Errorf("queryAsURL(%q) = %q (ok=%v), want %q", input, got, ok, want)
-		}
-	}
-
-	invalid := []string{"how can I update my go version", "hello", "btop", "1.5", "a.b", "localhost3000"}
-
-	for _, input := range invalid {
-		if got, ok := queryAsURL(input); ok {
-			t.Errorf("queryAsURL(%q) = %q, want no match", input, got)
-		}
-	}
-}
-
 func TestWebHistorySelection(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
 	mode, _ := NewWeb(DefaultWebConfig()).Update(webHistoryMsg{
 		{Label: "Open https://github.com", URL: "https://github.com"},
 		{Label: "Search the web for “go”", URL: "https://duckduckgo.com/?q=go"},
@@ -38,20 +12,71 @@ func TestWebHistorySelection(t *testing.T) {
 
 	web := mode.SetQuery("google.com").(Web)
 
-	if visit, ok := web.selectedVisit(); !ok || visit.URL != "https://google.com" {
-		t.Fatalf("live visit = %+v (ok=%v), want the open action", visit, ok)
+	activatedURL := func(index int) string {
+		t.Helper()
+
+		cmd := web.Activate(index)
+
+		if cmd == nil {
+			t.Fatalf("activating index %d should produce a command", index)
+		}
+
+		cmd()
+
+		path, err := launtuiDataPath(webHistoryFile)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		saved, _ := loadJSON[[]webVisit](path)
+
+		if len(saved) == 0 {
+			t.Fatal("activation should record a visit")
+		}
+
+		return saved[0].URL
 	}
 
-	first := web.MoveDown().MoveDown().(Web)
-
-	if visit, ok := first.selectedVisit(); !ok || visit.URL != "https://github.com" {
-		t.Fatalf("first history visit = %+v (ok=%v)", visit, ok)
+	if got := activatedURL(0); got != "https://google.com" {
+		t.Fatalf("live visit URL = %q, want the open action", got)
 	}
 
-	clamped := first.MoveDown().MoveDown().(Web)
+	if got := activatedURL(2); got != "https://github.com" {
+		t.Fatalf("first history visit URL = %q, want github", got)
+	}
 
-	if clamped.cursor != 3 {
-		t.Fatalf("cursor = %d, should clamp at the last history entry", clamped.cursor)
+	if cmd := web.Activate(4); cmd != nil {
+		t.Fatal("activating past the last row should do nothing")
+	}
+}
+
+func TestWebRecall(t *testing.T) {
+	mode, _ := NewWeb(DefaultWebConfig()).Update(webHistoryMsg{
+		{Label: "Search the web for “go”", URL: "https://duckduckgo.com/?q=go", Query: "go"},
+		{Label: "Open https://github.com", URL: "https://github.com"},
+	})
+
+	web := mode.SetQuery("google.com").(Web)
+
+	cases := []struct {
+		index int
+		text  string
+		ok    bool
+	}{
+		{0, "", false},
+		{1, "", false},
+		{2, "go", true},
+		{3, "https://github.com", true},
+		{4, "", false},
+	}
+
+	for _, testCase := range cases {
+		text, ok := web.RecallText(testCase.index)
+
+		if text != testCase.text || ok != testCase.ok {
+			t.Errorf("RecallText(%d) = (%q, %v), want (%q, %v)", testCase.index, text, ok, testCase.text, testCase.ok)
+		}
 	}
 }
 
@@ -63,10 +88,10 @@ func TestWebDeleteSelectedHistory(t *testing.T) {
 		{Label: "second", URL: "https://b.example"},
 	})
 
-	deleted, cmd, handled := mode.(Web).DeleteSelectedHistory()
+	deleted, cmd := mode.(Web).DeleteRow(0)
 
-	if !handled || cmd == nil {
-		t.Fatal("deleting a history entry should be handled and persisted")
+	if cmd == nil {
+		t.Fatal("deleting a history entry should be persisted")
 	}
 
 	web := deleted.(Web)
@@ -91,8 +116,8 @@ func TestWebDeleteSelectedHistory(t *testing.T) {
 
 	typed := web.SetQuery("google.com").(Web)
 
-	if _, _, handled := typed.DeleteSelectedHistory(); handled {
-		t.Fatal("delete on a live action should not be handled")
+	if _, cmd := typed.DeleteRow(0); cmd != nil {
+		t.Fatal("deleting a live action should do nothing")
 	}
 }
 
@@ -104,7 +129,7 @@ func TestWebClearHistory(t *testing.T) {
 		{Label: "second", URL: "https://b.example"},
 	})
 
-	cleared, cmd := mode.(Web).ClearHistory()
+	cleared, cmd := mode.(Web).ClearRows()
 
 	if len(cleared.(Web).history) != 0 {
 		t.Fatalf("history after clear = %+v", cleared.(Web).history)
@@ -123,12 +148,26 @@ func TestWebClearHistory(t *testing.T) {
 	}
 }
 
-func TestRecordWebVisitDeduplicatesByURL(t *testing.T) {
+func TestWebRecordsVisitsAndDeduplicates(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	recordWebVisit(webVisit{Label: "first", URL: "https://a.example", Time: 1}, 10)
-	recordWebVisit(webVisit{Label: "second", URL: "https://b.example", Time: 2}, 10)
-	recordWebVisit(webVisit{Label: "first", URL: "https://a.example", Time: 3}, 10)
+	web := NewWeb(DefaultWebConfig())
+
+	activate := func(query string) {
+		t.Helper()
+
+		cmd := web.SetQuery(query).(Web).Activate(0)
+
+		if cmd == nil {
+			t.Fatalf("activating %q should produce a command", query)
+		}
+
+		cmd()
+	}
+
+	activate("a.example")
+	activate("b.example")
+	activate("a.example")
 
 	path, err := launtuiDataPath(webHistoryFile)
 
@@ -139,7 +178,11 @@ func TestRecordWebVisitDeduplicatesByURL(t *testing.T) {
 	saved, _ := loadJSON[[]webVisit](path)
 
 	if len(saved) != 2 || saved[0].URL != "https://a.example" || saved[1].URL != "https://b.example" {
-		t.Fatalf("saved history = %+v", saved)
+		t.Fatalf("saved history = %+v, want a.example moved to front with b.example deduplicated", saved)
+	}
+
+	if saved[0].Query != "a.example" {
+		t.Fatalf("saved query = %q, want the typed query recorded for recall", saved[0].Query)
 	}
 }
 
@@ -148,18 +191,8 @@ func TestWebActions(t *testing.T) {
 
 	empty := web.SetQuery("").(Web)
 
-	if empty.HasResults() {
+	if HasResults(empty.Rows()) {
 		t.Fatal("empty query should produce no actions")
-	}
-
-	address := web.SetQuery("google.com").(Web)
-
-	if len(address.actions) != 2 {
-		t.Fatalf("address actions = %d, want open + search", len(address.actions))
-	}
-
-	if address.actions[0].url != "https://google.com" {
-		t.Fatalf("open url = %q", address.actions[0].url)
 	}
 
 	question := web.SetQuery("how do I update go").(Web)
@@ -170,5 +203,35 @@ func TestWebActions(t *testing.T) {
 
 	if question.actions[0].url != "https://duckduckgo.com/?q=how+do+I+update+go" {
 		t.Fatalf("search url = %q", question.actions[0].url)
+	}
+
+	urls := map[string]string{
+		"google.com":            "https://google.com",
+		"google.com/search?q=x": "https://google.com/search?q=x",
+		"http://example.org":    "http://example.org",
+		"https://example.org/a": "https://example.org/a",
+		"localhost":             "http://localhost",
+		"localhost:3000":        "http://localhost:3000",
+		"sub.domain.co.uk:8080": "https://sub.domain.co.uk:8080",
+	}
+
+	for input, want := range urls {
+		actions := web.SetQuery(input).(Web).actions
+
+		if len(actions) != 2 {
+			t.Fatalf("SetQuery(%q) actions = %d, want open + search", input, len(actions))
+		}
+
+		if actions[0].url != want {
+			t.Errorf("SetQuery(%q) open url = %q, want %q", input, actions[0].url, want)
+		}
+	}
+
+	notURLs := []string{"how can I update my go version", "hello", "btop", "1.5", "a.b", "localhost3000"}
+
+	for _, input := range notURLs {
+		if actions := web.SetQuery(input).(Web).actions; len(actions) != 1 {
+			t.Errorf("SetQuery(%q) actions = %d, want search only", input, len(actions))
+		}
 	}
 }

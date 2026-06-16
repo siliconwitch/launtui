@@ -34,36 +34,32 @@ type webAction struct {
 type webVisit struct {
 	Label string `json:"label"`
 	URL   string `json:"url"`
+	Query string `json:"query"`
 	Time  int64  `json:"time"`
 }
 
 type webHistoryMsg []webVisit
 
 type Web struct {
-	cfg     WebConfig
+	config  WebConfig
 	query   string
 	actions []webAction
 	history []webVisit
-	cursor  int
 }
 
-func NewWeb(cfg WebConfig) Web {
-	return Web{cfg: cfg}
+func NewWeb(config WebConfig) Web {
+	return Web{config: config}
 }
 
 func (Web) Name() string    { return "Web" }
 func (Web) Hotkey() string  { return "ctrl+s" }
-func (w Web) Enabled() bool { return w.cfg.Enabled }
+func (w Web) Enabled() bool { return w.config.Enabled }
 
 func (w Web) Init() tea.Cmd {
-	if !w.cfg.Enabled {
+	if !w.config.Enabled {
 		return nil
 	}
 
-	return loadWebHistoryCmd()
-}
-
-func loadWebHistoryCmd() tea.Cmd {
 	return func() tea.Msg {
 		path, err := launtuiDataPath(webHistoryFile)
 
@@ -91,18 +87,40 @@ func (w Web) Update(msg tea.Msg) (Mode, tea.Cmd) {
 
 func (w Web) SetQuery(query string) Mode {
 	w.query = strings.TrimSpace(query)
-	w.cursor = 0
 	w.actions = nil
 
 	if w.query == "" {
 		return w
 	}
 
-	if address, ok := queryAsURL(w.query); ok {
+	address, isURL := "", false
+
+	if !strings.ContainsAny(w.query, " \t") {
+		switch {
+		case strings.HasPrefix(w.query, "http://"), strings.HasPrefix(w.query, "https://"):
+			address, isURL = w.query, true
+		default:
+			host, _, _ := strings.Cut(w.query, "/")
+
+			if strings.HasPrefix(host, "localhost") {
+				rest := strings.TrimPrefix(host, "localhost")
+
+				if rest == "" || webPortPattern.MatchString(rest) {
+					address, isURL = "http://"+w.query, true
+				}
+			}
+
+			if !isURL && webHostPattern.MatchString(host) {
+				address, isURL = "https://"+w.query, true
+			}
+		}
+	}
+
+	if isURL {
 		w.actions = append(w.actions, webAction{label: "Open " + address, url: address})
 	}
 
-	search := strings.ReplaceAll(w.cfg.SearchURL, "%s", url.QueryEscape(w.query))
+	search := strings.ReplaceAll(w.config.SearchURL, "%s", url.QueryEscape(w.query))
 	w.actions = append(w.actions, webAction{label: "Search the web for “" + w.query + "”", url: search})
 
 	return w
@@ -113,115 +131,109 @@ var (
 	webPortPattern = regexp.MustCompile(`^:\d+$`)
 )
 
-func queryAsURL(query string) (string, bool) {
-	if strings.ContainsAny(query, " \t") {
-		return "", false
-	}
-
-	if strings.HasPrefix(query, "http://") || strings.HasPrefix(query, "https://") {
-		return query, true
-	}
-
-	host, _, _ := strings.Cut(query, "/")
-
-	if strings.HasPrefix(host, "localhost") {
-		rest := strings.TrimPrefix(host, "localhost")
-
-		if rest == "" || webPortPattern.MatchString(rest) {
-			return "http://" + query, true
-		}
-	}
-
-	if webHostPattern.MatchString(host) {
-		return "https://" + query, true
-	}
-
-	return "", false
-}
-
-func (w Web) HasResults() bool {
-	return len(w.actions) > 0
-}
+func (Web) Accent() lipgloss.Color { return webAccent }
 
 func (w Web) StrongMatch() bool {
 	return len(w.actions) > 1
 }
 
-func (w Web) itemCount() int {
-	return len(w.actions) + len(w.history)
-}
-
-func (w Web) MoveUp() Mode {
-	if w.cursor > 0 {
-		w.cursor--
+func (w Web) Status() string {
+	if len(w.actions) == 0 && len(w.history) == 0 {
+		return subtleStyle.Render("type a web address or search query")
 	}
 
-	return w
+	return ""
 }
 
-func (w Web) MoveDown() Mode {
-	if w.cursor < w.itemCount()-1 {
-		w.cursor++
+func (w Web) Rows() []Row {
+	rows := make([]Row, 0, len(w.actions)+len(w.history))
+
+	for _, action := range w.actions {
+		rows = append(rows, Row{left: action.label})
 	}
 
-	return w
+	now := time.Now().Unix()
+
+	for _, visit := range w.history {
+		rows = append(rows, Row{
+			left:      visit.Label,
+			right:     subtleStyle.Render(relativeAge(now - visit.Time)),
+			style:     rowDim,
+			Deletable: true,
+		})
+	}
+
+	return rows
 }
 
-func (w Web) Activate() tea.Cmd {
-	visit, ok := w.selectedVisit()
+func (w Web) Activate(index int) tea.Cmd {
+	var visit webVisit
 
-	if !ok {
+	if index < len(w.actions) {
+		action := w.actions[index]
+		visit = webVisit{Label: action.label, URL: action.url, Query: w.query, Time: time.Now().Unix()}
+	} else if history := index - len(w.actions); history < len(w.history) {
+		visit = w.history[history]
+		visit.Time = time.Now().Unix()
+	} else {
 		return nil
 	}
 
-	limit := w.cfg.MaxHistory
+	limit := w.config.MaxHistory
 
 	return func() tea.Msg {
 		spawnDetached("", "xdg-open", visit.URL)
-		recordWebVisit(visit, limit)
+
+		if limit <= 0 {
+			limit = 50
+		}
+
+		path, err := launtuiDataPath(webHistoryFile)
+
+		if err == nil {
+			previous, _ := loadJSON[[]webVisit](path)
+
+			entries := prependCapped(previous, visit, limit, func(existing webVisit) bool {
+				return existing.URL == visit.URL
+			})
+
+			_ = saveJSON(path, entries)
+		}
 
 		return RequestQuitMsg{}
 	}
 }
 
-func (w Web) selectedVisit() (webVisit, bool) {
-	if w.cursor < len(w.actions) {
-		action := w.actions[w.cursor]
+func (w Web) RecallText(index int) (string, bool) {
+	entry := index - len(w.actions)
 
-		return webVisit{Label: action.label, URL: action.url, Time: time.Now().Unix()}, true
+	if entry < 0 || entry >= len(w.history) {
+		return "", false
 	}
 
-	index := w.cursor - len(w.actions)
+	visit := w.history[entry]
 
-	if index < len(w.history) {
-		visit := w.history[index]
-		visit.Time = time.Now().Unix()
-
-		return visit, true
+	if visit.Query != "" {
+		return visit.Query, true
 	}
 
-	return webVisit{}, false
+	return visit.URL, true
 }
 
-func (w Web) DeleteSelectedHistory() (Mode, tea.Cmd, bool) {
-	index := w.cursor - len(w.actions)
+func (w Web) DeleteRow(index int) (Mode, tea.Cmd) {
+	history := index - len(w.actions)
 
-	if index < 0 || index >= len(w.history) {
-		return w, nil, false
+	if history < 0 || history >= len(w.history) {
+		return w, nil
 	}
 
-	w.history = removeAt(w.history, index)
+	w.history = removeAt(w.history, history)
 
-	if w.cursor >= w.itemCount() {
-		w.cursor = max(w.itemCount()-1, 0)
-	}
-
-	return w, saveWebHistoryCmd(w.history), true
+	return w, saveWebHistoryCmd(w.history)
 }
 
-func (w Web) ClearHistory() (Mode, tea.Cmd) {
+func (w Web) ClearRows() (Mode, tea.Cmd) {
 	w.history = nil
-	w.cursor = min(w.cursor, max(w.itemCount()-1, 0))
 
 	return w, saveWebHistoryCmd(nil)
 }
@@ -238,57 +250,4 @@ func saveWebHistoryCmd(history []webVisit) tea.Cmd {
 
 		return nil
 	}
-}
-
-func recordWebVisit(visit webVisit, limit int) {
-	if limit <= 0 {
-		limit = 50
-	}
-
-	path, err := launtuiDataPath(webHistoryFile)
-
-	if err != nil {
-		return
-	}
-
-	previous, _ := loadJSON[[]webVisit](path)
-
-	entries := prependCapped(previous, visit, limit, func(existing webVisit) bool {
-		return existing.URL == visit.URL
-	})
-
-	_ = saveJSON(path, entries)
-}
-
-func (w Web) View(width, rows int) string {
-	if w.itemCount() == 0 {
-		return subtleStyle.Render("type a web address or search query")
-	}
-
-	var lines []string
-
-	for i, action := range w.actions {
-		lines = append(lines, w.renderAction(action, i == w.cursor, width))
-	}
-
-	historyRows := rows - len(lines)
-
-	if len(w.history) > 0 && historyRows > 0 {
-		selected := w.cursor - len(w.actions)
-		start, end := visibleRange(max(selected, 0), historyRows, len(w.history))
-
-		for i := start; i < end; i++ {
-			lines = append(lines, w.renderVisit(w.history[i], i == selected, width))
-		}
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func (w Web) renderAction(action webAction, selected bool, width int) string {
-	return renderRow(webAccent, selected, truncate(action.label, max(width-2, 1)), "")
-}
-
-func (w Web) renderVisit(visit webVisit, selected bool, width int) string {
-	return renderHistoryRow(webAccent, selected, truncate(visit.Label, max(width-2, 1)))
 }

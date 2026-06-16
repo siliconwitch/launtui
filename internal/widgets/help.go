@@ -17,27 +17,24 @@ func DefaultHelpConfig() HelpConfig {
 }
 
 var (
-	helpBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("4")).
-			Padding(1, 3)
+	helpBoxStyle   = lipgloss.NewStyle().Padding(1, 3)
 	helpTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
 	helpKeyStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
 )
 
 type HelpBinding struct {
-	Keys string
-	Desc string
+	Keys        string
+	Description string
 }
 
 type Help struct {
-	cfg      HelpConfig
+	config   HelpConfig
 	visible  bool
 	bindings []HelpBinding
 }
 
-func NewHelp(cfg HelpConfig) Help {
-	return Help{cfg: cfg}
+func NewHelp(config HelpConfig) Help {
+	return Help{config: config}
 }
 
 func (h Help) WithBindings(bindings []HelpBinding) Help {
@@ -46,12 +43,10 @@ func (h Help) WithBindings(bindings []HelpBinding) Help {
 	return h
 }
 
-func (h Help) Enabled() bool { return h.cfg.Enabled }
-
 func (h Help) Visible() bool { return h.visible }
 
 func (h Help) Toggle() Help {
-	if h.cfg.Enabled {
+	if h.config.Enabled {
 		h.visible = !h.visible
 	}
 
@@ -78,7 +73,7 @@ func (h Help) View() string {
 	for i, binding := range h.bindings {
 		padding := strings.Repeat(" ", keyWidth-lipgloss.Width(binding.Keys))
 
-		rows[i] = helpKeyStyle.Render(binding.Keys) + padding + "   " + subtleStyle.Render(binding.Desc)
+		rows[i] = helpKeyStyle.Render(binding.Keys) + padding + "   " + subtleStyle.Render(binding.Description)
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,

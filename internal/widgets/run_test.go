@@ -7,10 +7,10 @@ import (
 )
 
 func TestRunExcludesApps(t *testing.T) {
-	cfg := DefaultRunConfig()
-	cfg.Exclude = []string{"firefox", "  Slack  "}
+	config := DefaultRunConfig()
+	config.Exclude = []string{"firefox", "  Slack  "}
 
-	run := NewRun(cfg)
+	run := NewRun(config)
 
 	updated, _ := run.Update(appsLoadedMsg{
 		{Name: "Firefox", Exec: "firefox"},
@@ -25,7 +25,26 @@ func TestRunExcludesApps(t *testing.T) {
 	}
 }
 
-func TestStripFieldCodes(t *testing.T) {
+func TestRunCommentToggle(t *testing.T) {
+	apps := appsLoadedMsg{{Name: "Editor", Comment: "Edit text", Exec: "ed"}}
+
+	shown, _ := NewRun(DefaultRunConfig()).Update(apps)
+
+	if shown.(Run).Rows()[0].right == "" {
+		t.Fatal("comment should be shown by default")
+	}
+
+	config := DefaultRunConfig()
+	config.Comment = false
+
+	hidden, _ := NewRun(config).Update(apps)
+
+	if right := hidden.(Run).Rows()[0].right; right != "" {
+		t.Fatalf("comment should be hidden when disabled, got %q", right)
+	}
+}
+
+func TestParseDesktopFileStripsExecFieldCodes(t *testing.T) {
 	cases := map[string]string{
 		"firefox %u":                                  "firefox",
 		"code --new-window %F":                        "code --new-window",
@@ -35,56 +54,20 @@ func TestStripFieldCodes(t *testing.T) {
 		"mpv --player-operation-mode=pseudo-gui '%U'": "mpv --player-operation-mode=pseudo-gui",
 	}
 
-	for in, want := range cases {
-		if got := stripFieldCodes(in); got != want {
-			t.Errorf("stripFieldCodes(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
+	dir := t.TempDir()
 
-func TestRunCursorResetsOnQueryChange(t *testing.T) {
-	mode, _ := NewRun(DefaultRunConfig()).Update(appsLoadedMsg{
-		{Name: "alpha", Exec: "a"},
-		{Name: "beta", Exec: "b"},
-		{Name: "gamma", Exec: "c"},
-	})
+	for exec, want := range cases {
+		path := filepath.Join(dir, "entry.desktop")
+		contents := "[Desktop Entry]\nType=Application\nName=Test\nExec=" + exec + "\n"
 
-	moved := mode.MoveDown().MoveDown().(Run)
-
-	if moved.list.cursor != 2 {
-		t.Fatalf("cursor = %d, want 2", moved.list.cursor)
-	}
-
-	typed := moved.SetQuery("a").(Run)
-
-	if typed.list.cursor != 0 {
-		t.Fatalf("cursor after typing = %d, want 0", typed.list.cursor)
-	}
-}
-
-func TestTerminalArgv(t *testing.T) {
-	cases := map[string][]string{
-		"foot":           {"foot", "sh", "-c", "btop"},
-		"kitty":          {"kitty", "sh", "-c", "btop"},
-		"alacritty":      {"alacritty", "-e", "sh", "-c", "btop"},
-		"wezterm":        {"wezterm", "start", "--", "sh", "-c", "btop"},
-		"gnome-terminal": {"gnome-terminal", "--", "sh", "-c", "btop"},
-		"":               {"sh", "-c", "btop"},
-	}
-
-	for terminal, want := range cases {
-		got := terminalArgv(terminal, "btop")
-
-		if len(got) != len(want) {
-			t.Errorf("terminalArgv(%q) = %v, want %v", terminal, got, want)
-			continue
+		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
 		}
 
-		for i := range want {
-			if got[i] != want[i] {
-				t.Errorf("terminalArgv(%q) = %v, want %v", terminal, got, want)
-				break
-			}
+		app, ok := parseDesktopFile(path)
+
+		if !ok || app.Exec != want {
+			t.Errorf("parseDesktopFile(Exec=%q) = %q (ok=%v), want %q", exec, app.Exec, ok, want)
 		}
 	}
 }
