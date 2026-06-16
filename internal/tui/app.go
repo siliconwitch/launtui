@@ -44,8 +44,8 @@ func New(startHotkey string) (App, error) {
 	passwordsConfig := widgets.DefaultPasswordsConfig()
 	projectsConfig := widgets.DefaultProjectsConfig()
 	clipboardConfig := widgets.DefaultClipboardConfig()
-	webConfig := widgets.DefaultWebConfig()
 	emojiConfig := widgets.DefaultEmojiConfig()
+	webConfig := widgets.DefaultWebConfig()
 	clockConfig := widgets.DefaultClockConfig()
 	batteryConfig := widgets.DefaultBatteryConfig()
 	helpConfig := widgets.DefaultHelpConfig()
@@ -56,8 +56,8 @@ func New(startHotkey string) (App, error) {
 		&passwordsConfig,
 		&projectsConfig,
 		&clipboardConfig,
-		&webConfig,
 		&emojiConfig,
+		&webConfig,
 		&clockConfig,
 		&batteryConfig,
 		&helpConfig,

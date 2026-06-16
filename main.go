@@ -21,6 +21,7 @@ func main() {
 		{"p", "Passwords"},
 		{"o", "Projects"},
 		{"v", "Clipboard"},
+		{"e", "Emoji"},
 		{"s", "Web search"},
 	}
 

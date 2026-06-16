@@ -13,14 +13,14 @@ import (
 )
 
 type ClipboardConfig struct {
-	Enabled  bool `toml:"enabled"`
-	MaxItems int  `toml:"max_items"`
+	Enabled    bool `toml:"enabled"`
+	MaxHistory int  `toml:"max_history"`
 }
 
 func (ClipboardConfig) SectionName() string { return "clipboard" }
 
 func DefaultClipboardConfig() ClipboardConfig {
-	return ClipboardConfig{Enabled: true, MaxItems: defaultClipboardLimit}
+	return ClipboardConfig{Enabled: true, MaxHistory: 50}
 }
 
 var clipboardAccent = lipgloss.Color("6")
@@ -150,7 +150,7 @@ func (c Clipboard) Activate(index int) tea.Cmd {
 		return nil
 	}
 
-	limit := c.cfg.MaxItems
+	limit := c.cfg.MaxHistory
 
 	return func() tea.Msg {
 		copyToClipboard(entry.Text)
@@ -187,7 +187,7 @@ func WatchClipboard(cfg ClipboardConfig) error {
 
 		if strings.TrimSpace(text) != "" && text != last {
 			last = text
-			recordClipboardText(text, cfg.MaxItems)
+			recordClipboardText(text, cfg.MaxHistory)
 		}
 
 		time.Sleep(time.Second)
@@ -213,7 +213,7 @@ func RecordClipboardStdin(cfg ClipboardConfig) error {
 		return err
 	}
 
-	recordClipboardText(string(data), cfg.MaxItems)
+	recordClipboardText(string(data), cfg.MaxHistory)
 
 	return nil
 }

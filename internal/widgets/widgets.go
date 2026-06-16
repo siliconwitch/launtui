@@ -311,9 +311,8 @@ func readClipboard() string {
 }
 
 const (
-	clipboardHistoryFile  = "clipboard-history.json"
-	suppressionFile       = "suppressed.json"
-	defaultClipboardLimit = 100
+	clipboardHistoryFile = "clipboard-history.json"
+	suppressionFile      = "suppressed.json"
 )
 
 type clipboardEntry struct {

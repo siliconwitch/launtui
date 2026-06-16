@@ -1,33 +1,31 @@
 # launtui
 
-<!-- Record a short screen capture of launtui in action and drop it here as docs/demo.gif -->
 ![launtui demo](docs/demo.gif)
 
-A fast, keyboard-driven launcher for the terminal — one search box, with a clock
+A fast, keyboard-driven launcher for the terminal - one search box, with a clock
 and battery at a glance. Start typing and it switches to whichever mode fits.
 
-- **Run** — fuzzy-launch your desktop applications
-- **Calc** — math (`sqrt`, `pi`, `2^10`), bitwise (`&`, `|`, `<<`, `xor`),
+- **Run** - fuzzy-launch your desktop applications
+- **Calc** - math (`sqrt`, `pi`, `2^10`), bitwise (`&`, `|`, `<<`, `xor`),
   number-base (`255 to hex`), unit, and currency conversion
-- **Pass** — search your [pass](https://www.passwordstore.org) store, copy via GPG
-- **Proj** — open a project in your editor, with live git status
-- **Clip** — clipboard history
-- **Emoji** — fuzzy emoji picker
-- **Web** — open a URL or search the web
+- **Pass** - search your [pass](https://www.passwordstore.org) store, copy via GPG
+- **Proj** - open a project in your editor, with live git status
+- **Clip** - clipboard history
+- **Emoji** - emoji picker
+- **Web** - open a URL or search the web
 
 Built in Go with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and
-[Lip Gloss](https://github.com/charmbracelet/lipgloss). Largely vibecoded —
-written with AI assistance and reviewed by a human.
+[Lip Gloss](https://github.com/charmbracelet/lipgloss).
 
 ## Installation
-
-### Arch Linux (AUR)
-
-_Coming soon._
 
 ### Nix
 
 _Coming soon._
+
+### Arch Linux (AUR)
+
+_Looking for maintainers._
 
 ### From source
 
@@ -56,6 +54,7 @@ _Coming soon._
 | ----------------- | --------------------------------------------------------- |
 | Build from source | [Go](https://go.dev) 1.26+                                |
 | Battery icon      | A [Nerd Font](https://www.nerdfonts.com)                  |
+| Emoji glyphs      | A colour emoji font (e.g. Noto Color Emoji)               |
 | Clipboard         | wl-clipboard (Wayland) or xclip/xsel (X11)                |
 | Passwords         | [pass](https://www.passwordstore.org) and gpg             |
 | Projects          | git                                                       |
@@ -68,7 +67,7 @@ Run `launtui` in a terminal and start typing. It searches your apps by default
 and switches mode automatically when your query fits another one better (e.g.
 `4+5` jumps to the calculator, an unmatched question falls back to web search).
 `Tab` and `Shift-Tab` step through the modes by hand. In the Calc, Clip and
-Web modes, `Del` removes the selected history entry and `Ctrl-Del` clears that
+Web modes, `Del` removes the selected history entry and `Alt-Del` clears that
 mode's entire history. Press `Ctrl-h` for the full list of keybindings.
 
 Start directly in a single mode (this turns off the automatic switching):
@@ -127,8 +126,8 @@ terminal = ""                    # terminal for terminal-based editors ($TERMINA
 # editor_terminal = true         # force terminal vs GUI launch (auto-detected when unset)
 
 [clipboard]
-enabled   = true
-max_items = 100                  # clipboard entries kept in history
+enabled     = true
+max_history = 50                 # entries kept in history
 
 [web]
 enabled     = true
@@ -153,26 +152,9 @@ enabled = true
 
 ## Contributing
 
-Contributions are welcome — open an issue or a pull request. launtui is largely
-vibecoded, and you're welcome to contribute with AI assistance too. Just read
-and test your code before submitting.
-
-### Porting (macOS and others)
-
-launtui currently targets Linux, but it already cross-compiles for macOS and
-the OS-specific behaviour is confined to a handful of functions. A port needs:
-
-- `internal/widgets/widgets.go` — add `pbcopy`/`pbpaste` to the clipboard tool
-  lists.
-- `internal/widgets/web.go` — launch URLs with `open` instead of `xdg-open`.
-- `internal/widgets/run.go` — `parseDesktopFile` reads XDG desktop entries;
-  macOS needs an `.app` bundle scanner and `open -a`.
-- `internal/widgets/battery.go` — reads `/sys/class/power_supply`; on other
-  platforms the widget silently hides itself, so this is optional (`pmset` on
-  macOS).
-
-Everything else (passwords, projects, calculator, clipboard history) is
-portable as is.
+Contributions are welcome - open an issue or a pull request. You're welcome
+to contribute with AI assistance too. Just read and test your code before
+submitting.
 
 ## License
 
