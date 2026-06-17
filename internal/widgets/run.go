@@ -15,7 +15,6 @@ import (
 
 type RunConfig struct {
 	Enabled  bool     `toml:"enabled"`
-	Comment  bool     `toml:"comment"`
 	Exclude  []string `toml:"exclude"`
 	Terminal string   `toml:"terminal"`
 }
@@ -23,14 +22,13 @@ type RunConfig struct {
 func (RunConfig) SectionName() string { return "run" }
 
 func DefaultRunConfig() RunConfig {
-	return RunConfig{Enabled: true, Comment: true}
+	return RunConfig{Enabled: true}
 }
 
 var runAccent = lipgloss.Color("4")
 
 type desktopApp struct {
 	Name       string
-	Comment    string
 	Exec       string
 	Terminal   bool
 	WorkingDir string
@@ -170,13 +168,7 @@ func (r Run) Status() string {
 
 func (r Run) Rows() []Row {
 	return r.list.rows(func(app desktopApp) Row {
-		right := ""
-
-		if r.config.Comment && app.Comment != "" {
-			right = subtleStyle.Render(app.Comment)
-		}
-
-		return Row{left: app.Name, right: right}
+		return Row{left: app.Name}
 	})
 }
 
@@ -255,8 +247,6 @@ func parseDesktopFile(path string) (desktopApp, bool) {
 			entryType = strings.TrimSpace(value)
 		case "Name":
 			app.Name = strings.TrimSpace(value)
-		case "Comment":
-			app.Comment = strings.TrimSpace(value)
 		case "Exec":
 			execLine := strings.ReplaceAll(value, "%%", "\x00")
 			execLine = execFieldCodes.ReplaceAllString(execLine, "")

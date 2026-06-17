@@ -77,15 +77,9 @@ func main() {
 		}
 	}
 
-	app, err := tui.New(startHotkey)
+	app, _ := tui.New(startHotkey)
 
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "launtui: config:", err)
-	}
-
-	_, err = tea.NewProgram(app, tea.WithAltScreen()).Run()
-
-	if err != nil {
+	if _, err := tea.NewProgram(app, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "launtui:", err)
 		os.Exit(1)
 	}

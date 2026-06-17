@@ -28,6 +28,7 @@ type App struct {
 	clock   widgets.Clock
 	battery widgets.Battery
 	help    widgets.Help
+	alert   widgets.Alert
 
 	input   textinput.Model
 	modes   []widgets.Mode
@@ -120,6 +121,10 @@ func New(startHotkey string) (App, error) {
 
 	app.help = widgets.NewHelp(helpConfig).WithBindings(bindings)
 
+	if err != nil {
+		app.alert = widgets.NewAlert(err.Error())
+	}
+
 	return app, err
 }
 
@@ -138,8 +143,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = msg.Width, msg.Height
 
-		contentWidth := max(1, a.width-2)
-		a.input.Width = max(1, contentWidth/2-lipgloss.Width(a.input.Prompt)-1)
+		a.resizeInput()
 
 		return a, nil
 
@@ -148,6 +152,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		key := msg.String()
+
+		if a.alert.Visible() {
+			if key == "esc" {
+				a.alert = a.alert.Hide()
+			}
+
+			return a, nil
+		}
 
 		if key == "ctrl+h" {
 			a.help = a.help.Toggle()
@@ -270,6 +282,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	a.battery, cmd = a.battery.Update(msg)
 	cmds = append(cmds, cmd)
+
+	a.resizeInput()
 
 	for i := range a.modes {
 		a.modes[i], cmd = a.modes[i].Update(msg)
@@ -461,6 +475,10 @@ func (a App) View() string {
 	tuiHeight := max(1, a.height)
 	contentWidth := max(1, a.width-2)
 
+	if a.alert.Visible() {
+		return lipgloss.Place(tuiWidth, tuiHeight, lipgloss.Center, lipgloss.Center, a.alert.View())
+	}
+
 	if a.help.Visible() {
 		return lipgloss.Place(tuiWidth, tuiHeight, lipgloss.Center, lipgloss.Center, a.help.View())
 	}
@@ -487,28 +505,13 @@ func (a App) View() string {
 		a.input.Placeholder += " (auto mode)"
 	}
 
-	statusWidth := max(0, contentWidth-lipgloss.Width(bar)-1)
+	clock := a.clock.View()
+	battery := a.battery.View()
 
-	var status []string
-
-	if statusWidth > 0 {
-		for _, part := range []string{a.clock.View(), a.battery.View()} {
-			if part != "" {
-				status = append(status, ansi.Truncate(part, statusWidth, "…"))
-			}
-		}
-	}
-
-	right := lipgloss.JoinVertical(lipgloss.Right, status...)
-	rightWidth := lipgloss.Width(right)
-
-	promptAndCursor := lipgloss.Width(a.input.Prompt) + 1
-	a.input.Width = max(1, contentWidth-rightWidth-1-promptAndCursor)
-
-	left := lipgloss.JoinVertical(lipgloss.Left, bar, a.input.View())
-
-	gap := max(1, contentWidth-lipgloss.Width(left)-rightWidth)
-	header := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+	header := lipgloss.JoinVertical(lipgloss.Left,
+		headerRow(bar, clock, contentWidth),
+		headerRow(a.input.View(), battery, contentWidth),
+	)
 
 	divider := dividerStyle.Render(strings.Repeat("─", contentWidth))
 
@@ -529,6 +532,26 @@ func (a App) View() string {
 	)
 
 	return appStyle.Width(tuiWidth).Height(tuiHeight).Render(body)
+}
+
+func (a *App) resizeInput() {
+	contentWidth := max(1, a.width-2)
+	batteryWidth := lipgloss.Width(a.battery.View())
+	promptAndCursor := lipgloss.Width(a.input.Prompt) + 1
+
+	a.input.Width = max(1, contentWidth-batteryWidth-1-promptAndCursor)
+}
+
+func headerRow(left, right string, width int) string {
+	leftWidth := lipgloss.Width(left)
+
+	if leftWidth+lipgloss.Width(right)+1 > width {
+		right = ansi.Truncate(right, max(0, width-leftWidth-1), "…")
+	}
+
+	gap := max(1, width-leftWidth-lipgloss.Width(right))
+
+	return left + strings.Repeat(" ", gap) + right
 }
 
 type Section interface {
