@@ -25,25 +25,6 @@ func TestRunExcludesApps(t *testing.T) {
 	}
 }
 
-func TestRunCommentToggle(t *testing.T) {
-	apps := appsLoadedMsg{{Name: "Editor", Comment: "Edit text", Exec: "ed"}}
-
-	shown, _ := NewRun(DefaultRunConfig()).Update(apps)
-
-	if shown.(Run).Rows()[0].right == "" {
-		t.Fatal("comment should be shown by default")
-	}
-
-	config := DefaultRunConfig()
-	config.Comment = false
-
-	hidden, _ := NewRun(config).Update(apps)
-
-	if right := hidden.(Run).Rows()[0].right; right != "" {
-		t.Fatalf("comment should be hidden when disabled, got %q", right)
-	}
-}
-
 func TestParseDesktopFileStripsExecFieldCodes(t *testing.T) {
 	cases := map[string]string{
 		"firefox %u":                                  "firefox",
@@ -118,7 +99,7 @@ func TestParseDesktopFile(t *testing.T) {
 		t.Fatal("good.desktop should parse")
 	}
 
-	if app.Name != "Cool App" || app.Exec != "coolapp" || app.Comment != "Does cool things" {
+	if app.Name != "Cool App" || app.Exec != "coolapp" {
 		t.Fatalf("parsed = %+v", app)
 	}
 

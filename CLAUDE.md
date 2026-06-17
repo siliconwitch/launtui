@@ -69,16 +69,22 @@ General and meant to be reused verbatim across projects.
 
 - **`main.go`** — process entry point. Parses flags, constructs the
   application (or dispatches to one of the widget-provided auxiliary process
-  modes), runs the program, and reports startup and config errors. No feature
+  modes), runs the program, and reports fatal run errors. The TUI's config-load
+  error is shown by the app as an overlay rather than printed, since a
+  hotkey-spawned terminal often closes before stderr can be read. No feature
   logic.
 - **`internal/tui/app.go`** — the root model. Owns the widgets, routes incoming
   messages to them, holds global state (window size and the selection cursor),
   and composes their rendered output into the overall layout. The single place
   widgets are wired together. Beyond the modes it also owns the non-mode widgets
-  — the status indicators (clock, battery) and the help overlay — driving their
-  init and update and composing their output into the header, and it owns the
-  global help-overlay toggle, routing the few app-level hotkeys (those not tied
-  to a mode) to the appropriate non-mode widget. Also owns the shared search
+  — the status indicators (clock, battery), the help overlay, and the error
+  overlay — driving their init and update and composing their output into the
+  header, and it owns the global help-overlay toggle, routing the few app-level
+  hotkeys (those not tied to a mode) to the appropriate non-mode widget. An
+  overlay, while visible, is modal: it captures `esc` to dismiss itself before
+  `esc` reaches the quit path. The error overlay carries a startup config-load
+  failure, is raised automatically on open, and is dismissed with `esc`. Also
+  owns the shared search
   input and the set of modes: it tracks the current mode, switches automatically
   to the first mode
   that has results for the query (unless a hotkey or startup flag has pinned
@@ -89,7 +95,9 @@ General and meant to be reused verbatim across projects.
   resolves the config path (`$LAUNTUI_CONFIG` overrides the default, which
   also gives tests a hermetic seam) and overlays the on-disk file onto each
   widget's defaults; the loader is widget-agnostic and never changes when
-  widgets are added or removed.
+  widgets are added or removed. A load error is surfaced through the error
+  overlay rather than printed, so it stays visible even when the app was spawned
+  from a hotkey whose terminal has since closed.
 
 ## Widget structure
 

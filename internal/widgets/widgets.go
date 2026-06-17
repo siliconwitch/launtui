@@ -105,34 +105,50 @@ func RenderResults(status string, rows []Row, accent lipgloss.Color, cursor, wid
 
 func renderRow(accent lipgloss.Color, selected bool, row Row, width int) string {
 	availableWidth := max(width-2, 1)
+
+	right := row.right
+
+	if lipgloss.Width(right) > availableWidth/2 {
+		right = truncate(right, availableWidth/2)
+	}
+
+	rightWidth := lipgloss.Width(right)
+	showRight := right != "" && availableWidth-rightWidth-1 >= 1
+
+	nameBudget := availableWidth
+
+	if showRight {
+		nameBudget = availableWidth - rightWidth - 1
+	}
+
 	name := row.left
+
+	if lipgloss.Width(name) > nameBudget {
+		name = truncate(name, nameBudget)
+	}
+
 	rightColumn := ""
 
-	if lipgloss.Width(name) > availableWidth {
-		name = truncate(name, availableWidth)
-	} else if row.right != "" {
-		gap := availableWidth - lipgloss.Width(name)
-
-		if gap > 2 {
-			right := truncate(row.right, gap-1)
-			rightColumn = strings.Repeat(" ", gap-lipgloss.Width(right)) + right
-		}
+	if showRight {
+		gap := availableWidth - lipgloss.Width(name) - rightWidth
+		rightColumn = strings.Repeat(" ", gap) + right
 	}
 
-	if selected {
+	prefix := "  "
+	styledName := name
+
+	switch {
+	case selected:
 		accentStyle := lipgloss.NewStyle().Foreground(accent)
-
-		return accentStyle.Render("▌ ") + accentStyle.Bold(true).Render(name) + rightColumn
+		prefix = accentStyle.Render("▌ ")
+		styledName = accentStyle.Bold(true).Render(name)
+	case row.style == rowDim:
+		styledName = subtleStyle.Render(name)
+	case row.style == rowEmphasized:
+		styledName = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(name)
 	}
 
-	switch row.style {
-	case rowDim:
-		return "  " + subtleStyle.Render(name) + rightColumn
-	case rowEmphasized:
-		return "  " + lipgloss.NewStyle().Foreground(accent).Bold(true).Render(name) + rightColumn
-	default:
-		return "  " + name + rightColumn
-	}
+	return ansi.Truncate(prefix+styledName+rightColumn, width, "")
 }
 
 func truncate(text string, width int) string {

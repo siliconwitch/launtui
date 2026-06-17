@@ -104,7 +104,6 @@ to the default below.
 ```toml
 [run]
 enabled  = true
-comment  = true                  # show each app's comment as a subtitle
 exclude  = []                    # app names to hide, exactly as shown in the list
 terminal = ""                    # terminal for Terminal=true apps ($TERMINAL or auto-detected)
 

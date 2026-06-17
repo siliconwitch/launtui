@@ -48,6 +48,59 @@ func TestRenderResults(t *testing.T) {
 	}
 }
 
+func TestRenderRowReservesRightColumn(t *testing.T) {
+	accent := lipgloss.Color("4")
+
+	cases := []struct {
+		name     string
+		left     string
+		right    string
+		width    int
+		endsWith string
+		mustShow string
+	}{
+		{name: "short left keeps full right", left: "alpha", right: "9m", width: 40, endsWith: "9m", mustShow: "alpha"},
+		{name: "long left truncates before its right", left: strings.Repeat("x", 100), right: "9m", width: 20, endsWith: "9m"},
+		{name: "no right uses full width", left: strings.Repeat("y", 100), right: "", width: 20},
+		{name: "narrow width still right-aligns", left: "some entry text here", right: "12h", width: 16, endsWith: "12h"},
+		{name: "long right is capped, primary survives", left: "personal-email-work-account", right: strings.Repeat("z", 46), width: 50, mustShow: "personal-email-work"},
+	}
+
+	for _, test := range cases {
+		rendered := ansi.Strip(renderRow(accent, false, Row{left: test.left, right: test.right}, test.width))
+
+		if lipgloss.Width(rendered) > test.width {
+			t.Errorf("%s: width %d exceeds %d: %q", test.name, lipgloss.Width(rendered), test.width, rendered)
+		}
+
+		if test.endsWith != "" && !strings.HasSuffix(rendered, test.endsWith) {
+			t.Errorf("%s: right column should be preserved at the edge, got %q", test.name, rendered)
+		}
+
+		if test.mustShow != "" && !strings.Contains(rendered, test.mustShow) {
+			t.Errorf("%s: primary text %q should survive, got %q", test.name, test.mustShow, rendered)
+		}
+	}
+}
+
+func TestRenderRowNeverExceedsWidth(t *testing.T) {
+	accent := lipgloss.Color("4")
+
+	rights := []string{"", "9m", strings.Repeat("z", 30)}
+
+	for width := 1; width <= 24; width++ {
+		for _, right := range rights {
+			for _, selected := range []bool{false, true} {
+				rendered := renderRow(accent, selected, Row{left: strings.Repeat("a", 40), right: right}, width)
+
+				if got := lipgloss.Width(ansi.Strip(rendered)); got > width {
+					t.Errorf("width=%d right=%q selected=%v: rendered width %d exceeds it", width, right, selected, got)
+				}
+			}
+		}
+	}
+}
+
 func TestRelativeAge(t *testing.T) {
 	cases := map[int64]string{
 		30:    "now",
