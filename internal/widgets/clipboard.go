@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -70,14 +71,20 @@ func (c Clipboard) SetQuery(query string) Mode {
 
 func clipboardPreview(text string) string {
 	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
+		cleaned := strings.TrimSpace(strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return ' '
+			}
 
-		if trimmed != "" {
-			return trimmed
+			return r
+		}, line))
+
+		if cleaned != "" {
+			return cleaned
 		}
 	}
 
-	return strings.TrimSpace(text)
+	return ""
 }
 
 func (Clipboard) Accent() lipgloss.Color { return clipboardAccent }
