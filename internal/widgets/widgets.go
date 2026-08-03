@@ -330,6 +330,22 @@ func readClipboard() string {
 	return ""
 }
 
+func listClipboardTypes() (string, bool) {
+	wlPaste, err := exec.LookPath("wl-paste")
+
+	if err != nil {
+		return "", false
+	}
+
+	output, err := exec.Command(wlPaste, "--list-types").Output()
+
+	if err != nil {
+		return "", false
+	}
+
+	return string(output), true
+}
+
 const (
 	clipboardHistoryFile = "clipboard-history.json"
 	suppressionFile      = "suppressed.json"

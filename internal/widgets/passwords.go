@@ -2,10 +2,15 @@ package widgets
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -174,7 +179,9 @@ func (p Passwords) Update(msg tea.Msg) (Mode, tea.Cmd) {
 				return passwordCopyBlockedMsg{}
 			}
 
-			copyToClipboard(password)
+			if startPasteSequence(username, password) != nil {
+				copyToClipboard(password)
+			}
 
 			if username != "" {
 				recordClipboardText(username, 0)
@@ -296,4 +303,103 @@ func (p Passwords) Activate(index int) tea.Cmd {
 	return tea.ExecProcess(command, func(err error) tea.Msg {
 		return passwordShownMsg{output: output.String(), err: err}
 	})
+}
+
+const pasteStageTimeout = 45 * time.Second
+
+func startPasteSequence(username, password string) error {
+	// wl-copy --version succeeds without connecting to a compositor, so the
+	// probe alone would pass on an X11 session that merely has wl-clipboard
+	// installed, and the sequence would then serve nothing.
+	if os.Getenv("WAYLAND_DISPLAY") == "" {
+		return errors.New("no wayland session")
+	}
+
+	err := exec.Command("wl-copy", "--sensitive", "--version").Run()
+
+	if err != nil {
+		return err
+	}
+
+	self, err := os.Executable()
+
+	if err != nil {
+		return err
+	}
+
+	command := exec.Command(self, "-sequence")
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	input, err := command.StdinPipe()
+
+	if err != nil {
+		return err
+	}
+
+	if err := command.Start(); err != nil {
+		return err
+	}
+
+	_, writeErr := io.WriteString(input, username+"\n"+password)
+
+	if closeErr := input.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
+
+	return writeErr
+}
+
+func RunPasteSequence() error {
+	payload, err := io.ReadAll(io.LimitReader(os.Stdin, 64*1024))
+
+	if err != nil {
+		return err
+	}
+
+	username, password, found := strings.Cut(string(payload), "\n")
+
+	if !found {
+		return errors.New("malformed paste sequence payload")
+	}
+
+	stages := []string{username, password}
+
+	if username == "" {
+		stages = []string{password}
+	}
+
+	for index, stage := range stages {
+		arguments := []string{"--foreground", "--sensitive"}
+
+		if index < len(stages)-1 {
+			arguments = append(arguments, "--paste-once")
+		}
+
+		deadline, cancel := context.WithTimeout(context.Background(), pasteStageTimeout)
+		command := exec.CommandContext(deadline, "wl-copy", arguments...)
+		command.Stdin = strings.NewReader(stage)
+
+		runErr := command.Run()
+
+		expired := deadline.Err() != nil
+		cancel()
+
+		if expired {
+			return nil
+		}
+
+		if runErr != nil {
+			return runErr
+		}
+
+		// wl-copy exits 0 whether its offer was served or another program took
+		// the clipboard, so ownership decides what happened: an empty clipboard
+		// means the stage was pasted, foreign types mean the user copied
+		// something else and the rest of the sequence must not replace it.
+		if types, ok := listClipboardTypes(); ok && strings.TrimSpace(types) != "" {
+			return nil
+		}
+	}
+
+	return nil
 }

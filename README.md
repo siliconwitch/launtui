@@ -8,7 +8,8 @@ and battery at a glance. Start typing and it switches to whichever mode fits.
 - **Run** - fuzzy-launch your desktop applications
 - **Calc** - math (`sqrt`, `pi`, `2^10`), bitwise (`&`, `|`, `<<`, `xor`),
   number-base (`255 to hex`), unit, and currency conversion
-- **Pass** - search your [pass](https://www.passwordstore.org) store, copy via GPG
+- **Pass** - search your [pass](https://www.passwordstore.org) store, copy via
+  GPG - the first paste gives the username, the second the password
 - **Proj** - open a project in your editor, with live git status
 - **Clip** - clipboard history
 - **Emoji** - emoji picker
@@ -82,6 +83,17 @@ launtui -e   # Emoji
 launtui -s   # Web search
 ```
 
+### Passwords
+
+Activating a pass entry hands the credentials over in stages: the first paste
+inserts the entry's username (its second line, when present) and every paste
+after that inserts the password, until the clipboard is cleared 45 seconds
+after the password is armed. A stage left unpasted for 45 seconds ends the
+sequence and clears the clipboard, and copying anything else cancels the
+remaining stages. Staged passwords never reach the clipboard history.
+Staging needs a Wayland session and wl-clipboard 2.3+; elsewhere the password
+is copied plainly and its recording is suppressed for the next 5 minutes.
+
 ### Clipboard watcher
 
 The Clip mode records everything launtui itself copies. To also record copies
@@ -92,8 +104,10 @@ in your compositor's autostart (sway/niri/hyprland):
 exec launtui -watch
 ```
 
-It uses `wl-paste --watch` on Wayland and falls back to polling on X11.
-Passwords copied through the Pass mode are recognised and never recorded.
+It polls once a second. On Wayland it inspects the offered clipboard types
+before reading anything, so sensitive copies - the Pass mode's staged pastes,
+or anything else marked with `x-kde-passwordManagerHint` - are passed over
+without being read or recorded. Restart the watcher after upgrading launtui.
 
 ## Config
 

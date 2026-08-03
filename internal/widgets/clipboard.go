@@ -2,7 +2,6 @@ package widgets
 
 import (
 	"errors"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -172,55 +171,46 @@ func WatchClipboard(config ClipboardConfig) error {
 		return errors.New("clipboard mode is disabled in config")
 	}
 
-	self, err := os.Executable()
+	_, err := exec.LookPath("wl-paste")
 
-	if err != nil {
-		return err
-	}
-
-	wlPaste, err := exec.LookPath("wl-paste")
-
-	if err == nil {
-		command := exec.Command(wlPaste, "--type", "text", "--no-newline", "--watch", self, "-record")
-		command.Stderr = os.Stderr
-
-		return command.Run()
-	}
+	hasWaylandClipboard := err == nil && os.Getenv("WAYLAND_DISPLAY") != ""
 
 	last := ""
 
 	for {
-		text := readClipboard()
+		time.Sleep(time.Second)
 
-		if strings.TrimSpace(text) != "" && text != last {
-			last = text
-			recordClipboardText(text, config.MaxHistory)
+		// Listing the offered types is the one clipboard access that does not
+		// count as a paste, so a sensitive offer (a password sequence stage
+		// served with --paste-once) is skipped without consuming its serve.
+		if hasWaylandClipboard && !clipboardIsRecordable() {
+			continue
 		}
 
-		time.Sleep(time.Second)
+		text := readClipboard()
+
+		if len(text) > 256*1024 {
+			text = text[:256*1024]
+		}
+
+		if strings.TrimSpace(text) == "" || text == last {
+			continue
+		}
+
+		// A sensitive offer can take the clipboard between the type check and
+		// the read; re-checking drops such a read instead of recording it.
+		if hasWaylandClipboard && !clipboardIsRecordable() {
+			continue
+		}
+
+		last = text
+
+		recordClipboardText(text, config.MaxHistory)
 	}
 }
 
-func RecordClipboardStdin(config ClipboardConfig) error {
-	if !config.Enabled {
-		return nil
-	}
+func clipboardIsRecordable() bool {
+	types, ok := listClipboardTypes()
 
-	if wlPaste, err := exec.LookPath("wl-paste"); err == nil {
-		if output, err := exec.Command(wlPaste, "--list-types").Output(); err == nil {
-			if strings.Contains(string(output), "x-kde-passwordManagerHint") {
-				return nil
-			}
-		}
-	}
-
-	data, err := io.ReadAll(io.LimitReader(os.Stdin, 256*1024))
-
-	if err != nil {
-		return err
-	}
-
-	recordClipboardText(string(data), config.MaxHistory)
-
-	return nil
+	return ok && !strings.Contains(types, "x-kde-passwordManagerHint")
 }

@@ -12,12 +12,13 @@ import (
 )
 
 func main() {
-	// -record is internal: the clipboard watcher re-invokes launtui as
-	// `launtui -record` once per clipboard change and pipes the new contents to
-	// its stdin (see WatchClipboard). It is never typed by a user, so it is
-	// matched here directly and left unregistered as a flag — keeping it out of
-	// -help, which also means flag parsing must be skipped for it.
-	record := len(os.Args) == 2 && os.Args[1] == "-record"
+	// -sequence is internal: the passwords widget re-invokes launtui as
+	// `launtui -sequence` with "username\npassword" piped to its stdin, and
+	// this process serves the staged clipboard hand-off (see RunPasteSequence).
+	// It is never typed by a user, so it is matched here directly and left
+	// unregistered as a flag: that keeps it out of -help, which also means flag
+	// parsing must be skipped for it.
+	sequence := len(os.Args) == 2 && os.Args[1] == "-sequence"
 
 	modeFlags := []struct {
 		letter string
@@ -40,26 +41,27 @@ func main() {
 
 	watch := flag.Bool("watch", false, "watch the clipboard and record history")
 
-	if !record {
+	if !sequence {
 		flag.Parse()
 	}
 
-	if record || *watch {
+	if sequence {
+		if err := widgets.RunPasteSequence(); err != nil {
+			fmt.Fprintln(os.Stderr, "launtui:", err)
+			os.Exit(1)
+		}
+
+		return
+	}
+
+	if *watch {
 		clipboardConfig := widgets.DefaultClipboardConfig()
 
 		if err := tui.LoadConfig(&clipboardConfig); err != nil {
 			fmt.Fprintln(os.Stderr, "launtui: config:", err)
 		}
 
-		var err error
-
-		if record {
-			err = widgets.RecordClipboardStdin(clipboardConfig)
-		} else {
-			err = widgets.WatchClipboard(clipboardConfig)
-		}
-
-		if err != nil {
+		if err := widgets.WatchClipboard(clipboardConfig); err != nil {
 			fmt.Fprintln(os.Stderr, "launtui:", err)
 			os.Exit(1)
 		}
