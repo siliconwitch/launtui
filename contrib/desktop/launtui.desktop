@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=launtui
+GenericName=Application Launcher
+Comment=A keyboard-driven launcher for the terminal
+TryExec=launtui
+Exec=launtui
+Terminal=true
+Icon=system-search
+Categories=Utility;
+Keywords=launcher;run;calculator;clipboard;emoji;password;

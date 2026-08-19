@@ -1,0 +1,55 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: github.repository == 'siliconwitch/launtui'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Verify the tag matches the version in main.go
+        run: |
+          declared=$(sed -n 's/^const version = "\(.*\)"$/\1/p' main.go)
+          tagged="${GITHUB_REF_NAME#v}"
+
+          if [ -z "$declared" ]; then
+            echo "could not read 'const version' from main.go"
+            exit 1
+          fi
+
+          if [ "$declared" != "$tagged" ]; then
+            echo "tag $GITHUB_REF_NAME implies $tagged, but main.go declares $declared"
+            exit 1
+          fi
+
+      - name: Verify the AUR key is present
+        env:
+          AUR_KEY: ${{ secrets.AUR_KEY }}
+        run: |
+          if [ -z "$AUR_KEY" ]; then
+            echo "AUR_KEY is unset, and GoReleaser would skip the AUR upload without failing"
+            exit 1
+          fi
+
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUR_KEY: ${{ secrets.AUR_KEY }}

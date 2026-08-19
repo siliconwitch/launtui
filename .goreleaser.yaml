@@ -1,0 +1,80 @@
+version: 2
+
+project_name: launtui
+
+env:
+  - CGO_ENABLED=0
+
+before:
+  hooks:
+    - go mod verify
+    - go vet ./...
+    - go test ./...
+
+builds:
+  - id: launtui
+    main: .
+    binary: launtui
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: launtui
+    ids:
+      - launtui
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - contrib/**/*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  disable: true
+
+release:
+  github:
+    owner: siliconwitch
+    name: launtui
+  mode: keep-existing
+  prerelease: auto
+
+aurs:
+  - name: launtui-bin
+    ids:
+      - launtui
+    homepage: https://github.com/siliconwitch/launtui
+    description: A keyboard-driven launcher for the terminal
+    license: MIT
+    maintainers:
+      - Raj Nakarja <raj@siliconwitchery.com>
+    private_key: "{{ .Env.AUR_KEY }}"
+    git_url: ssh://aur@aur.archlinux.org/launtui-bin.git
+    provides:
+      - launtui
+    conflicts:
+      - launtui
+    skip_upload: auto
+    commit_author:
+      name: Raj Nakarja
+      email: raj@siliconwitchery.com
+    package: |-
+      install -Dm755 "./launtui" "${pkgdir}/usr/bin/launtui"
+      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+      install -Dm644 "./README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+      install -Dm644 "./contrib/systemd/launtui-watch.service" "${pkgdir}/usr/lib/systemd/user/launtui-watch.service"
+      sed -i "s|/usr/local/bin/launtui|/usr/bin/launtui|g" "${pkgdir}/usr/lib/systemd/user/launtui-watch.service"
+      grep -q "^ExecStart=/usr/bin/launtui " "${pkgdir}/usr/lib/systemd/user/launtui-watch.service"
+      install -Dm644 "./contrib/desktop/launtui.desktop" "${pkgdir}/usr/share/applications/launtui.desktop"

@@ -1,3 +1,9 @@
-# Built app
+# Built binary
 /launtui
+
+# GoReleaser output
+/dist/
+
+# nix build symlink
+/result
 .claude/memories/

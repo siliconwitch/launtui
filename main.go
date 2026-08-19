@@ -11,6 +11,8 @@ import (
 	"github.com/siliconwitch/launtui/internal/widgets"
 )
 
+const version = "0.1.0"
+
 func main() {
 	// -sequence is internal: the passwords widget re-invokes launtui as
 	// `launtui -sequence` with "username\npassword" piped to its stdin, and
@@ -40,6 +42,7 @@ func main() {
 	}
 
 	watch := flag.Bool("watch", false, "watch the clipboard and record history")
+	showVersion := flag.Bool("version", false, "print version and exit")
 
 	if !sequence {
 		flag.Parse()
@@ -50,6 +53,12 @@ func main() {
 			fmt.Fprintln(os.Stderr, "launtui:", err)
 			os.Exit(1)
 		}
+
+		return
+	}
+
+	if *showVersion {
+		fmt.Println("launtui", version)
 
 		return
 	}
