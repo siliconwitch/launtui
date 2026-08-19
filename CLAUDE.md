@@ -63,7 +63,11 @@ General and meant to be reused verbatim across projects.
 ## Operational principles
 
 - Build and run with cgo disabled for a static, dependency-free binary:
-  `CGO_ENABLED=0 go build`.
+  `CGO_ENABLED=0 go build`. Run `go vet` and `go test` with `CGO_ENABLED=0`
+  too, so neither reaches for a C toolchain that need not exist.
+- Keep the dependency set small, and keep the `go` directive in `go.mod` low
+  enough that a currently supported distribution can build the module with
+  its own toolchain.
 
 ## Roles
 
@@ -154,6 +158,55 @@ Quitting is owned by `app.go`: widget `Cmd`s never return `tea.QuitMsg`
 `widgets.RequestQuitMsg` instead. `app.go` answers it (and `esc`) by
 broadcasting `widgets.AppClosingMsg` to every mode, so widgets can persist
 state in a final `Cmd` before the app quits.
+
+## Releases
+
+The version lives in one place, `version` in `main.go`. Bump it, then tag the
+commit that bumped it. Nothing injects the version at build time, because
+`-ldflags -X` cannot write to a Go const; the release workflow instead refuses
+to build when the tag and the const disagree.
+
+Pushing a `v*` tag is the whole release. GoReleaser builds the static binaries,
+publishes the GitHub release, and pushes the `launtui-bin` PKGBUILD to the AUR.
+Nix users build from `flake.nix`, which reads the version straight out of
+`main.go`. Upstream maintains only the AUR and Nix packages; other
+distributions are left to their own willing maintainers.
+
+The generated changelog is deliberately disabled, so a fresh release starts with
+an empty body. Write the notes into it afterwards; GoReleaser keeps an existing
+body and will not overwrite them on a re-run.
+
+Release notes are written for someone deciding whether to upgrade, not for
+someone reading the log. Lead with what changed for them, and never just list
+commits. Order the bullets by what a user would notice first. Follow this shape:
+
+```
+**Headline description** {Emoji}
+
+- Top feature/change
+- Top feature/change
+- Top feature/change
+- Other notable/meaningful changes for users
+- Security fixes/issues addressed
+
+**Breaking changes**
+
+- Change - solution if available
+- ...
+```
+
+Omit the breaking changes section entirely when there are none. Omit the
+security bullet when nothing was fixed.
+
+`docs/demo.gif` is the README's front page. It is recorded with
+[VHS](https://github.com/charmbracelet/vhs) from `docs/demo.tape` against the
+throwaway environment `docs/demo-fixture.sh` builds, so the recording never
+shows real applications, projects, passwords or clipboard history. Re-record it
+when the interface changes:
+
+```sh
+sh docs/demo-fixture.sh && vhs docs/demo.tape
+```
 
 ## Maintenance
 
