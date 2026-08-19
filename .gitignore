@@ -7,3 +7,6 @@
 # nix build symlink
 /result
 .claude/memories/
+
+# Demo fixture
+/docs/.demo/
