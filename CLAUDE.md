@@ -108,7 +108,10 @@ General and meant to be reused verbatim across projects.
 Every widget lives in `internal/widgets/<name>.go` and contains, together: its
 config struct (with `toml` tags) and defaults, the method exposing its config
 section name, its model type and constructor, its message handling, and its
-rendering helpers, plus any private message types it needs. Shared,
+rendering helpers, plus any private message types it needs. A widget built on
+a large static dataset embeds a generated `<name>.json` beside its file; a
+build-ignored `<name>_generate.go`, run by the widget's `go:generate`
+directive, downloads the upstream sources and writes it. Shared,
 widget-agnostic code lives in `internal/widgets/widgets.go`: the mode
 interfaces and app-level messages, the `Row` descriptor and the shared results
 renderer that draws an active mode's rows with cursor, windowing, and
