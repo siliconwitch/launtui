@@ -11,7 +11,7 @@ import (
 	"github.com/siliconwitch/launtui/internal/widgets"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	// -sequence is internal: the passwords widget re-invokes launtui as
