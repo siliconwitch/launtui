@@ -240,6 +240,54 @@ func TestCalculatorHistorySelection(t *testing.T) {
 	}
 }
 
+func TestCalculatorCopyNumber(t *testing.T) {
+	tests := []struct {
+		query string
+		index int
+		want  string
+	}{
+		{"5 miles to km", 0, "8.04672"},
+		{"3+3", 0, "6"},
+		{"3+3", 1, "1098.76"},
+		{"3+3", 2, "4"},
+		{"", 0, "1098.76"},
+		{"", 2, ""},
+	}
+
+	for _, test := range tests {
+		t.Setenv("XDG_DATA_HOME", t.TempDir())
+		t.Setenv("XDG_CACHE_HOME", t.TempDir())
+		t.Setenv("PATH", "")
+
+		mode, _ := NewCalculator(DefaultCalculatorConfig()).Update(calculatorHistoryMsg{
+			{Expression: "100 EUR to SEK", Answer: "1098.76 SEK"},
+			{Expression: "2+2", Answer: "4"},
+		})
+
+		cmd := mode.SetQuery(test.query).(Calculator).CopyNumber(test.index)
+
+		if test.want == "" {
+			if cmd != nil {
+				t.Errorf("CopyNumber(%d) for %q should do nothing", test.index, test.query)
+			}
+
+			continue
+		}
+
+		if cmd == nil {
+			t.Fatalf("CopyNumber(%d) for %q should produce a command", test.index, test.query)
+		}
+
+		cmd()
+
+		entries := loadClipboardHistory()
+
+		if len(entries) == 0 || entries[0].Text != test.want {
+			t.Errorf("CopyNumber(%d) for %q copied %v, want %q", test.index, test.query, entries, test.want)
+		}
+	}
+}
+
 func TestCalculatorRecall(t *testing.T) {
 	mode, _ := NewCalculator(DefaultCalculatorConfig()).Update(calculatorHistoryMsg{
 		{Expression: "1+1", Answer: "2"},

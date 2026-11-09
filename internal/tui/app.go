@@ -103,6 +103,7 @@ func New(startHotkey string) (App, error) {
 		{Keys: "type", Description: "filter the list"},
 		{Keys: "↑ / ↓", Description: "move selection"},
 		{Keys: "enter", Description: "activate selection"},
+		{Keys: "alt+enter", Description: "copy a calculation without its unit"},
 		{Keys: "esc", Description: "quit"},
 		{Keys: "tab / shift+tab", Description: "next / previous mode"},
 		{Keys: "del", Description: "delete the selected history entry"},
@@ -226,6 +227,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter":
 			return a, a.modes[a.current].Activate(a.cursor)
+
+		case "alt+enter":
+			if copier, ok := a.modes[a.current].(widgets.NumberCopier); ok {
+				return a, copier.CopyNumber(a.cursor)
+			}
+
+			return a, nil
 
 		case "delete":
 			if deleter, ok := a.modes[a.current].(widgets.RowDeleter); ok {

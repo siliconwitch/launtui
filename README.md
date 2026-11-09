@@ -107,7 +107,9 @@ and switches mode automatically when your query fits another one better (e.g.
 `4+5` jumps to the calculator, an unmatched question falls back to web search).
 `Tab` and `Shift-Tab` step through the modes by hand. In the Calc, Clip and
 Web modes, `Del` removes the selected history entry and `Alt-Del` clears that
-mode's entire history. Press `Ctrl-h` for the full list of keybindings.
+mode's entire history. In the Calc mode, `Enter` copies a conversion with its
+unit (`8.04672 km`) and `Alt-Enter` copies only the number (`8.04672`). Press
+`Ctrl-h` for the full list of keybindings.
 
 Start directly in a single mode (this turns off the automatic switching):
 

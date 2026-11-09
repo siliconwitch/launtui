@@ -53,6 +53,10 @@ type Recaller interface {
 	RecallText(index int) (string, bool)
 }
 
+type NumberCopier interface {
+	CopyNumber(index int) tea.Cmd
+}
+
 var (
 	subtleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))

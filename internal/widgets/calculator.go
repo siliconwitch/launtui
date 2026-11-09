@@ -222,6 +222,14 @@ func (c Calculator) Rows() []Row {
 }
 
 func (c Calculator) Activate(index int) tea.Cmd {
+	return c.copyAnswer(index, false)
+}
+
+func (c Calculator) CopyNumber(index int) tea.Cmd {
+	return c.copyAnswer(index, true)
+}
+
+func (c Calculator) copyAnswer(index int, numberOnly bool) tea.Cmd {
 	live := 0
 
 	if c.valid {
@@ -236,6 +244,12 @@ func (c Calculator) Activate(index int) tea.Cmd {
 		answer = c.history[entry].Answer
 	} else {
 		return nil
+	}
+
+	number, _, found := strings.Cut(answer, " ")
+
+	if numberOnly && found && number != "" {
+		answer = number
 	}
 
 	return func() tea.Msg {

@@ -55,7 +55,7 @@ General and meant to be reused verbatim across projects.
   interface and opts into extra behaviour only by satisfying additional, single-
   purpose interfaces that the composition root detects with a type assertion
   (`Mode`, plus optional `StrongMatcher`, `RowDeleter`, `Selectable`,
-  `Recaller`). New capabilities never widen the core interface.
+  `Recaller`, `NumberCopier`). New capabilities never widen the core interface.
 - **Declarative, decentralized config.** Each unit owns its config struct,
   defaults, and section name; one generic, unit-agnostic loader overlays the
   on-disk file. Adding or changing config never touches the loader.
@@ -154,7 +154,9 @@ detail lazily for the highlighted entry satisfies `widgets.Selectable`;
 rows carry editable source text satisfies `widgets.Recaller`; as the selection
 moves over those rows `app.go` loads each `RecallText(index)` into the shared
 input for editing, saving the typed draft on the way in and restoring it when
-the selection leaves the recallable rows.
+the selection leaves the recallable rows. A mode whose answers carry a unit
+satisfies `widgets.NumberCopier`; `app.go` routes alt+enter through its
+`CopyNumber(index)` to copy the selected answer without the unit.
 
 Quitting is owned by `app.go`: widget `Cmd`s never return `tea.QuitMsg`
 (bubbletea short-circuits it before `Update`); they return
